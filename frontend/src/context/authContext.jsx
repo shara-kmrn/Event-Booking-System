@@ -1,0 +1,59 @@
+import { createContext, useContext, useState, useEffect } from 'react';
+import API from '../api/axios';
+
+const AuthContext = createContext();
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token') || null);
+  const [loading, setLoading] = useState(true);
+
+  // App එක load වෙද්දී token එක තියෙනවා නම් user data restore කිරීම
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser && token) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        logout();
+      }
+    }
+    setLoading(false);
+  }, [token]);
+
+  // Login handler
+  const login = async (email, password) => {
+    const { data } = await API.post('/auth/login', { email, password });
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('user', JSON.stringify(data));
+    setToken(data.token);
+    setUser(data);
+    return data;
+  };
+
+  // Register handler
+  const register = async (userData) => {
+    const { data } = await API.post('/auth/register', userData);
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('user', JSON.stringify(data));
+    setToken(data.token);
+    setUser(data);
+    return data;
+  };
+
+  // Logout handler
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+      {!loading && children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => useContext(AuthContext);
