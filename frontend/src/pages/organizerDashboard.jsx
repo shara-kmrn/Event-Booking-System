@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import API from '../api/axios';
 import { PlusCircle, DollarSign, Users, Calendar } from 'lucide-react';
+import TicketVerifier from '../components/TicketVerifier';
 
 const OrganizerDashboard = () => {
   const [events, setEvents] = useState([]);
@@ -95,6 +96,9 @@ const OrganizerDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Gate Ticket Verifier */}
+      <TicketVerifier />
 
       {/* Events Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
