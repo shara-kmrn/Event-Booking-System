@@ -6,6 +6,7 @@ import OrganizerDashboard from './pages/organizerDashboard';
 import Home from './pages/home';
 import Login from './pages/login';
 import Register from './pages/register';
+import MyTickets from './pages/myTickets';
 
 function App() {
   return (
@@ -18,6 +19,16 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+
+              {/* Customer Only Route */}
+              <Route
+                path="/my-tickets"
+                element={
+                  <ProtectedRoute allowedRoles={['customer']}>
+                    <MyTickets />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Organizer Only Route */}
               <Route
