@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import API from '../api/axios';
 import { PlusCircle, DollarSign, Users, Calendar } from 'lucide-react';
-import TicketVerifier from '../components/TicketVerifier';
+import TicketVerifier from '../component/ticketVerifier';
 
 const OrganizerDashboard = () => {
   const [events, setEvents] = useState([]);
