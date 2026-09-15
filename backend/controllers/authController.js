@@ -12,7 +12,7 @@ const generateToken = (id) => {
 // @route   POST /api/auth/register
 export const registerUser = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { firstName, lastName, name, contactNumber, email, verificationMethod, password, role } = req.body;
 
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -21,10 +21,15 @@ export const registerUser = async (req, res) => {
 
     // Security check: Superadmin manually create විය යුතු අතර direct register වීමට ඉඩ නොදෙයි
     const assignedRole = role === 'organizer' ? 'organizer' : 'customer';
+    const computedName = name || `${firstName || ''} ${lastName || ''}`.trim() || 'User';
 
     const user = await User.create({
-      name,
+      firstName,
+      lastName,
+      name: computedName,
+      contactNumber,
       email,
+      verificationMethod: verificationMethod || 'email',
       password,
       role: assignedRole,
     });

@@ -3,8 +3,16 @@ import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema(
   {
+    firstName: { type: String, trim: true },
+    lastName: { type: String, trim: true },
     name: { type: String, required: true, trim: true },
+    contactNumber: { type: String, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    verificationMethod: {
+      type: String,
+      enum: ['email', 'sms'],
+      default: 'email',
+    },
     password: { type: String, required: true },
     role: {
       type: String,
