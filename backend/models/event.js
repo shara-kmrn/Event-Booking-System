@@ -17,6 +17,11 @@ const eventSchema = new mongoose.Schema(
     totalCapacity: { type: Number, required: true, min: 1 },
     availableTickets: { type: Number, required: true, min: 0 },
     isPublished: { type: Boolean, default: true },
+    approvalStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    }
   },
   { timestamps: true }
 );
