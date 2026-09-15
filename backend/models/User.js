@@ -3,14 +3,28 @@ import bcrypt from 'bcryptjs';
 
 const userSchema = new mongoose.Schema(
   {
+    firstName: { type: String, trim: true },
+    lastName: { type: String, trim: true },
     name: { type: String, required: true, trim: true },
+    contactNumber: { type: String, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    verificationMethod: {
+      type: String,
+      enum: ['email', 'sms'],
+      default: 'email',
+    },
     password: { type: String, required: true },
     role: {
       type: String,
       enum: ['superadmin', 'organizer', 'customer'],
       default: 'customer',
     },
+    // Email Verification & Password Reset fields
+    isVerified: { type: Boolean, default: false },
+    otp: { type: String },
+    otpExpires: { type: Date },
+    resetPasswordOtp: { type: String },
+    resetPasswordExpires: { type: Date },
     // SaaS Multi-tenancy fields (organizers සඳහා)
     subscriptionPlan: {
       type: String,
