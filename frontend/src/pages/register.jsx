@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/authContext';
 import {
@@ -14,6 +14,9 @@ import {
   X,
   Eye,
   EyeOff,
+  KeyRound,
+  RefreshCw,
+  ArrowRight,
 } from 'lucide-react';
 
 const Register = () => {
@@ -33,8 +36,31 @@ const Register = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { register } = useAuth();
+  // OTP Modal State
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
+  const [otpError, setOtpError] = useState('');
+  const [otpSuccess, setOtpSuccess] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendTimer, setResendTimer] = useState(60);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [assignedRole, setAssignedRole] = useState('customer');
+
+  const inputRefs = useRef([]);
+  const { register, verifyOtp, resendOtp } = useAuth();
   const navigate = useNavigate();
+
+  // Timer countdown for OTP resend button
+  useEffect(() => {
+    let timer;
+    if (showOtpModal && resendTimer > 0) {
+      timer = setInterval(() => {
+        setResendTimer((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [showOtpModal, resendTimer]);
 
   const handleChange = (e) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
@@ -45,29 +71,20 @@ const Register = () => {
   // Phone number validation function (Enforces Sri Lanka 10 digits for 0-start & +94 + 9 digits)
   const isPhoneValid = (phone) => {
     if (!phone) return false;
-    // Remove spaces, dashes, parentheses
     const cleaned = phone.replace(/[\s\-\(\)]/g, '');
 
-    // 1. Starts with 0 (Sri Lanka local): Must be EXACTLY 10 digits (e.g. 0771234567)
     if (/^0/.test(cleaned)) {
       return /^0\d{9}$/.test(cleaned);
     }
-
-    // 2. Starts with +94 (Sri Lanka international with +): +94 followed by EXACTLY 9 digits (e.g. +94771234567)
     if (/^\+94/.test(cleaned)) {
       return /^\+94\d{9}$/.test(cleaned);
     }
-
-    // 3. Starts with 94 (Sri Lanka international without +): 94 followed by EXACTLY 9 digits (e.g. 94771234567)
     if (/^94/.test(cleaned)) {
       return /^94\d{9}$/.test(cleaned);
     }
-
-    // 4. Other International numbers starting with +: + followed by 8 to 14 digits
     if (/^\+/.test(cleaned)) {
       return /^\+[1-9]\d{7,14}$/.test(cleaned);
     }
-
     return false;
   };
 
@@ -119,16 +136,93 @@ const Register = () => {
         role: formData.role,
       };
 
-      const user = await register(payload);
-      if (user.role === 'organizer') {
-        navigate('/organizer/dashboard');
-      } else {
-        navigate('/');
-      }
+      const res = await register(payload);
+      setRegisteredEmail(formData.email.trim());
+      setAssignedRole(formData.role);
+      setShowOtpModal(true);
+      setResendTimer(60);
+      setOtpError('');
+      setOtpSuccess(res.message || 'OTP verification code sent to your email.');
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // OTP Input auto-advance & paste handler
+  const handleOtpChange = (index, value) => {
+    if (!/^\d*$/.test(value)) return;
+
+    const newDigits = [...otpDigits];
+    newDigits[index] = value.slice(-1);
+    setOtpDigits(newDigits);
+    if (otpError) setOtpError('');
+
+    if (value && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleOtpPaste = (e) => {
+    e.preventDefault();
+    const pasteData = e.clipboardData.getData('text').trim();
+    if (/^\d{6}$/.test(pasteData)) {
+      const digits = pasteData.split('');
+      setOtpDigits(digits);
+      inputRefs.current[5]?.focus();
+    }
+  };
+
+  // Submit OTP Code
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    const code = otpDigits.join('');
+    if (code.length !== 6) {
+      setOtpError('Please enter all 6 digits of the OTP code.');
+      return;
+    }
+
+    setOtpLoading(true);
+    setOtpError('');
+    try {
+      const user = await verifyOtp(registeredEmail, code);
+      setOtpSuccess('Email successfully verified! Redirecting...');
+      setTimeout(() => {
+        if (user.role === 'organizer' || assignedRole === 'organizer') {
+          navigate('/organizer/dashboard');
+        } else {
+          navigate('/');
+        }
+      }, 1200);
+    } catch (err) {
+      setOtpError(err.response?.data?.message || 'Invalid or expired OTP code. Please try again.');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  // Resend OTP Code
+  const handleResendOtpCode = async () => {
+    if (resendTimer > 0 || resendLoading) return;
+    setResendLoading(true);
+    setOtpError('');
+    try {
+      const res = await resendOtp(registeredEmail);
+      setOtpSuccess(res.message || 'Fresh OTP code sent to your email address.');
+      setResendTimer(60);
+      setOtpDigits(['', '', '', '', '', '']);
+      inputRefs.current[0]?.focus();
+    } catch (err) {
+      setOtpError(err.response?.data?.message || 'Failed to resend OTP code.');
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -156,6 +250,7 @@ const Register = () => {
       <div className="gradient-glow top-1/4 left-10 w-[400px] h-[400px] bg-indigo-600/15 animate-pulse-slow" />
       <div className="gradient-glow bottom-10 right-10 w-[450px] h-[450px] bg-purple-600/15 animate-pulse-slow" style={{ animationDelay: '2s' }} />
 
+      {/* Main Registration Card */}
       <div className="max-w-xl w-full glass-panel border border-slate-800/90 rounded-2xl p-6 sm:p-10 shadow-2xl shadow-black/80 relative z-10 backdrop-blur-xl">
         
         {/* Brand Header */}
@@ -309,7 +404,6 @@ const Register = () => {
             {/* Real-time Password Strength Bar & Requirements Box */}
             {formData.password.length > 0 && (
               <div className="mt-3 p-3.5 rounded-xl bg-slate-950/90 border border-slate-800/80 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
-                {/* Strength Meter Bar */}
                 <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 mb-1">
                   <span>Password Strength:</span>
                   <span
@@ -331,7 +425,6 @@ const Register = () => {
                   />
                 </div>
 
-                {/* Criteria Checklist */}
                 <div className="pt-1.5 space-y-1.5 text-xs">
                   <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">
                     Password must contain:
@@ -391,7 +484,6 @@ const Register = () => {
               </button>
             </div>
 
-            {/* Confirm Password Live Match Feedback */}
             {formData.confirmPassword.length > 0 && (
               <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium">
                 {formData.password === formData.confirmPassword ? (
@@ -476,6 +568,91 @@ const Register = () => {
         </p>
 
       </div>
+
+      {/* Modern Email OTP Verification Glass Modal */}
+      {showOtpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md px-4 animate-in fade-in duration-200">
+          <div className="max-w-md w-full glass-panel border border-indigo-500/30 rounded-2xl p-6 sm:p-8 shadow-2xl shadow-indigo-950/80 relative">
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 mb-3 shadow-inner">
+                <KeyRound className="w-7 h-7" />
+              </div>
+              <h3 className="text-xl font-extrabold text-white">Email Verification Code</h3>
+              <p className="text-xs text-slate-400 mt-1.5">
+                We sent a 6-digit OTP verification code to <br />
+                <span className="text-indigo-400 font-semibold">{registeredEmail}</span>
+              </p>
+              <div className="mt-2 text-[11px] bg-slate-900/80 border border-slate-800 text-amber-300/90 py-1 px-3 rounded-full inline-flex items-center gap-1.5">
+                💡 Dev Note: Check your server terminal output for the OTP code
+              </div>
+            </div>
+
+            {otpError && (
+              <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs p-3 rounded-xl mb-4 flex items-center gap-2">
+                <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{otpError}</span>
+              </div>
+            )}
+
+            {otpSuccess && !otpError && (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs p-3 rounded-xl mb-4 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{otpSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleVerifyOtp} className="space-y-6">
+              {/* 6-Digit OTP Inputs */}
+              <div className="flex justify-center gap-2 sm:gap-2.5" onPaste={handleOtpPaste}>
+                {otpDigits.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    ref={(el) => (inputRefs.current[idx] = el)}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleOtpChange(idx, e.target.value)}
+                    onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                    className="w-10 h-12 sm:w-12 sm:h-14 bg-slate-950 border border-slate-800 text-center font-mono font-bold text-xl text-indigo-300 rounded-xl focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 transition shadow-inner"
+                  />
+                ))}
+              </div>
+
+              {/* Verify Button */}
+              <button
+                type="submit"
+                disabled={otpLoading || otpDigits.join('').length !== 6}
+                className="w-full py-3.5 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white shadow-lg shadow-indigo-600/30 transition hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+              >
+                {otpLoading ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <span>Verify & Continue</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Resend Code Section */}
+            <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
+              <span className="text-slate-400">Didn't receive code?</span>
+              <button
+                type="button"
+                onClick={handleResendOtpCode}
+                disabled={resendTimer > 0 || resendLoading}
+                className="text-indigo-400 font-semibold hover:text-indigo-300 transition flex items-center gap-1.5 disabled:text-slate-600 disabled:pointer-events-none cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${resendLoading ? 'animate-spin' : ''}`} />
+                {resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Resend Code'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
