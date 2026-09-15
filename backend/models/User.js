@@ -19,10 +19,12 @@ const userSchema = new mongoose.Schema(
       enum: ['superadmin', 'organizer', 'customer'],
       default: 'customer',
     },
-    // Email Verification fields
+    // Email Verification & Password Reset fields
     isVerified: { type: Boolean, default: false },
     otp: { type: String },
     otpExpires: { type: Date },
+    resetPasswordOtp: { type: String },
+    resetPasswordExpires: { type: Date },
     // SaaS Multi-tenancy fields (organizers සඳහා)
     subscriptionPlan: {
       type: String,
