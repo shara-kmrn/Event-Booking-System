@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/authContext';
-import { Calendar, LogOut, LayoutDashboard, Ticket, Sparkles, Menu, X, ShieldCheck, User } from 'lucide-react';
+import { Calendar, LogOut, LayoutDashboard, Ticket, Sparkles, Menu, X, ShieldCheck, User, Shield } from 'lucide-react';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -64,6 +64,16 @@ const Navbar = () => {
         <div className="hidden md:flex items-center gap-4">
           {user ? (
             <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-800 rounded-full py-1.5 px-3 shadow-inner">
+              {user.role === 'superadmin' && (
+                <Link
+                  to="/admin/dashboard"
+                  className="flex items-center gap-1.5 text-xs font-semibold bg-pink-600/90 hover:bg-pink-500 text-white px-3.5 py-1.5 rounded-full transition shadow-sm"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  Admin Panel
+                </Link>
+              )}
+
               {user.role === 'organizer' && (
                 <Link
                   to="/organizer/dashboard"
@@ -174,6 +184,16 @@ const Navbar = () => {
                   <div className="text-xs text-indigo-400 font-mono capitalize">{user.role}</div>
                 </div>
               </div>
+
+              {user.role === 'superadmin' && (
+                <Link
+                  to="/admin/dashboard"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-center gap-2 w-full bg-pink-600 text-white py-2 rounded-lg font-semibold text-sm"
+                >
+                  <Shield className="w-4 h-4" /> Admin Control Panel
+                </Link>
+              )}
 
               {user.role === 'organizer' && (
                 <Link
