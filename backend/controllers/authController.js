@@ -257,3 +257,84 @@ export const loginUser = async (req, res) => {
 export const getUserProfile = async (req, res) => {
   res.json(req.user);
 };
+
+// @desc    Send password reset OTP
+// @route   POST /api/auth/forgot-password
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: 'Email address is required.' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'No account found with this email address.' });
+    }
+
+    const otp = generateOTP();
+    user.resetPasswordOtp = otp;
+    user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    await sendEmail({
+      to: user.email,
+      subject: 'Eventra - Password Reset OTP Code',
+      html: `
+        <div style="font-family: Arial, sans-serif; background-color: #0f172a; color: #f8fafc; padding: 30px; border-radius: 12px; max-width: 500px; margin: 0 auto;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #6366f1; margin: 0; font-size: 28px;">Eventra</h1>
+            <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">Password Reset Request</p>
+          </div>
+          <div style="background-color: #1e293b; padding: 24px; border-radius: 8px; border: 1px solid #334155;">
+            <p style="color: #cbd5e1; font-size: 14px;">Hello <strong>${user.name}</strong>,</p>
+            <p style="color: #cbd5e1; font-size: 14px;">You requested to reset your password. Use the following 6-digit code to reset your password:</p>
+            <div style="text-align: center; margin: 25px 0;">
+              <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #f43f5e; background-color: #0f172a; padding: 12px 24px; border-radius: 8px; border: 1px solid #e11d48; display: inline-block;">${otp}</span>
+            </div>
+            <p style="color: #94a3b8; font-size: 12px; text-align: center;">Code is valid for 10 minutes.</p>
+          </div>
+        </div>
+      `,
+      otp,
+    });
+
+    res.status(200).json({ message: 'Password reset OTP code sent to your email.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Reset password using OTP code
+// @route   POST /api/auth/reset-password
+export const resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ message: 'Email, OTP code, and new password are required.' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (user.resetPasswordOtp !== otp.toString().trim()) {
+      return res.status(400).json({ message: 'Invalid password reset code.' });
+    }
+
+    if (user.resetPasswordExpires < new Date()) {
+      return res.status(400).json({ message: 'Password reset code has expired. Please request a new one.' });
+    }
+
+    user.password = newPassword;
+    user.resetPasswordOtp = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    res.status(200).json({ message: 'Password reset successfully! You can now log in with your new password.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
