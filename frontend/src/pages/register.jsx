@@ -48,7 +48,7 @@ const Register = () => {
   const [assignedRole, setAssignedRole] = useState('customer');
 
   const inputRefs = useRef([]);
-  const { register, verifyOtp, resendOtp } = useAuth();
+  const { register, verifyOtp, resendOtp, logout } = useAuth();
   const navigate = useNavigate();
 
   // Timer countdown for OTP resend button
@@ -192,14 +192,16 @@ const Register = () => {
     setOtpLoading(true);
     setOtpError('');
     try {
-      const user = await verifyOtp(registeredEmail, code);
-      setOtpSuccess('Email successfully verified! Redirecting...');
+      await verifyOtp(registeredEmail, code);
+      logout(); // Ensure no active session remains
+      setOtpSuccess('Email successfully verified! Redirecting to login page...');
       setTimeout(() => {
-        if (user.role === 'organizer' || assignedRole === 'organizer') {
-          navigate('/organizer/dashboard');
-        } else {
-          navigate('/');
-        }
+        navigate('/login', {
+          state: {
+            verifiedMessage: 'Email verified successfully! Please sign in with your email and password.',
+            email: registeredEmail,
+          },
+        });
       }, 1200);
     } catch (err) {
       setOtpError(err.response?.data?.message || 'Invalid or expired OTP code. Please try again.');
