@@ -213,6 +213,13 @@ export const loginUser = async (req, res) => {
     const user = await User.findOne({ email });
 
     if (user && (await user.matchPassword(password))) {
+      // Check account status (suspended or banned)
+      if (user.status === 'suspended' || user.status === 'banned') {
+        return res.status(403).json({
+          message: `Your account has been ${user.status} by an administrator. Please contact support.`,
+        });
+      }
+
       // Check if user email is verified
       if (!user.isVerified) {
         // Send fresh OTP automatically

@@ -19,6 +19,11 @@ const userSchema = new mongoose.Schema(
       enum: ['superadmin', 'organizer', 'customer'],
       default: 'customer',
     },
+    status: {
+      type: String,
+      enum: ['active', 'suspended', 'banned'],
+      default: 'active',
+    },
     // Email Verification & Password Reset fields
     isVerified: { type: Boolean, default: false },
     otp: { type: String },
@@ -30,6 +35,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ['free', 'pro'],
       default: 'free',
+    },
+    organizerStatus: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'approved',
     },
   },
   { timestamps: true }

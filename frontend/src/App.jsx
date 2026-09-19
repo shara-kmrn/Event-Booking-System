@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/authContext';
 import Navbar from './component/navbar';
 import ProtectedRoute from './component/protectedRoutes';
+import AdminDashboard from './pages/adminDashboard';
 import OrganizerDashboard from './pages/organizerDashboard';
 import Home from './pages/home';
 import Login from './pages/login';
@@ -36,6 +37,16 @@ function App() {
                 element={
                   <ProtectedRoute allowedRoles={['organizer']}>
                     <OrganizerDashboard />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Admin / Superadmin Only Route */}
+              <Route
+                path="/admin/dashboard"
+                element={
+                  <ProtectedRoute allowedRoles={['superadmin', 'admin']}>
+                    <AdminDashboard />
                   </ProtectedRoute>
                 }
               />

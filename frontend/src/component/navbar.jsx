@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/authContext';
-import { Calendar, LogOut, LayoutDashboard, Ticket, Sparkles, Menu, X, ShieldCheck, User } from 'lucide-react';
+import { Calendar, LogOut, LayoutDashboard, Ticket, Sparkles, Menu, X, ShieldCheck, User, Shield } from 'lucide-react';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -16,6 +16,7 @@ const Navbar = () => {
   };
 
   const isActive = (path) => location.pathname === path;
+  const userRole = user?.role ? user.role.toLowerCase() : '';
 
   return (
     <nav className="sticky top-0 z-50 glass-panel border-b border-slate-800/80 shadow-lg shadow-black/40 backdrop-blur-xl">
@@ -64,7 +65,17 @@ const Navbar = () => {
         <div className="hidden md:flex items-center gap-4">
           {user ? (
             <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-800 rounded-full py-1.5 px-3 shadow-inner">
-              {user.role === 'organizer' && (
+              {userRole === 'superadmin' && (
+                <Link
+                  to="/admin/dashboard"
+                  className="flex items-center gap-1.5 text-xs font-semibold bg-pink-600 hover:bg-pink-500 text-white px-3.5 py-1.5 rounded-full transition shadow-sm"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  Admin Panel
+                </Link>
+              )}
+
+              {userRole === 'organizer' && (
                 <Link
                   to="/organizer/dashboard"
                   className="flex items-center gap-1.5 text-xs font-semibold bg-indigo-600/90 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-full transition shadow-sm"
@@ -74,7 +85,7 @@ const Navbar = () => {
                 </Link>
               )}
 
-              {user.role === 'customer' && (
+              {userRole === 'customer' && (
                 <Link
                   to="/my-tickets"
                   className="flex items-center gap-1.5 text-xs font-semibold bg-purple-600/90 hover:bg-purple-500 text-white px-3 py-1.5 rounded-full transition shadow-sm"
@@ -148,20 +159,6 @@ const Navbar = () => {
           >
             Explore Events
           </Link>
-          <a
-            href="#features"
-            onClick={() => setMobileMenuOpen(false)}
-            className="block py-2 text-slate-200 hover:text-indigo-400 font-medium border-b border-slate-800/50"
-          >
-            Why Eventra
-          </a>
-          <a
-            href="#organizers"
-            onClick={() => setMobileMenuOpen(false)}
-            className="block py-2 text-slate-200 hover:text-indigo-400 font-medium border-b border-slate-800/50"
-          >
-            For Organizers
-          </a>
 
           {user ? (
             <div className="pt-2 space-y-2">
@@ -175,7 +172,17 @@ const Navbar = () => {
                 </div>
               </div>
 
-              {user.role === 'organizer' && (
+              {userRole === 'superadmin' && (
+                <Link
+                  to="/admin/dashboard"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-center gap-2 w-full bg-pink-600 text-white py-2 rounded-lg font-semibold text-sm"
+                >
+                  <Shield className="w-4 h-4" /> Admin Control Panel
+                </Link>
+              )}
+
+              {userRole === 'organizer' && (
                 <Link
                   to="/organizer/dashboard"
                   onClick={() => setMobileMenuOpen(false)}
@@ -185,7 +192,7 @@ const Navbar = () => {
                 </Link>
               )}
 
-              {user.role === 'customer' && (
+              {userRole === 'customer' && (
                 <Link
                   to="/my-tickets"
                   onClick={() => setMobileMenuOpen(false)}

@@ -28,12 +28,15 @@ export const protect = async (req, res, next) => {
   }
 };
 
-// Role-based Access Control (RBAC)
+// Role-based Access Control (RBAC - Case Insensitive)
 export const authorize = (...roles) => {
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    const userRole = req.user?.role ? req.user.role.toLowerCase() : '';
+    const allowed = roles.map((r) => r.toLowerCase());
+
+    if (!allowed.includes(userRole)) {
       return res.status(403).json({ 
-        message: `User role '${req.user.role}' is not authorized to access this route` 
+        message: `User role '${req.user?.role}' is not authorized to access this route` 
       });
     }
     next();

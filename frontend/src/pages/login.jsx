@@ -68,7 +68,10 @@ const Login = () => {
 
     try {
       const user = await login(email.trim(), password);
-      if (user.role === 'organizer') {
+      const userRole = user?.role ? user.role.toLowerCase() : '';
+      if (userRole === 'superadmin') {
+        navigate('/admin/dashboard');
+      } else if (userRole === 'organizer') {
         navigate('/organizer/dashboard');
       } else {
         navigate('/');
