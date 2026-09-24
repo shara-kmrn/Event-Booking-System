@@ -22,7 +22,7 @@ const EventCard = ({ event, onBook }) => {
   const isSoldOut = event.availableTickets <= 0;
   const categoryKey = event.category && categoryColors[event.category] ? event.category : 'General';
   const badgeStyle = categoryColors[categoryKey];
-  const coverImage = event.image || defaultCategoryImages[categoryKey];
+  const coverImage = event.bannerUrl || defaultCategoryImages[categoryKey];
 
   const totalTickets = event.totalTickets || 100;
   const remainingTickets = event.availableTickets ?? 0;
@@ -32,7 +32,10 @@ const EventCard = ({ event, onBook }) => {
     <div className="group glass-card rounded-2xl overflow-hidden flex flex-col justify-between transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-indigo-500/15 relative">
       
       {/* Top Banner Image with Gradient Overlay */}
-      <div className="relative h-48 w-full overflow-hidden bg-slate-900">
+      <div
+        onClick={() => onBook(event)}
+        className="relative h-48 w-full overflow-hidden bg-slate-900 cursor-pointer"
+      >
         <img
           src={coverImage}
           alt={event.title}
@@ -60,7 +63,10 @@ const EventCard = ({ event, onBook }) => {
       {/* Card Content Body */}
       <div className="p-5 flex-1 flex flex-col justify-between">
         <div>
-          <h3 className="text-xl font-bold text-white mb-2 line-clamp-1 group-hover:text-indigo-300 transition-colors">
+          <h3
+            onClick={() => onBook(event)}
+            className="text-xl font-bold text-white mb-2 line-clamp-1 group-hover:text-indigo-300 transition-colors cursor-pointer"
+          >
             {event.title}
           </h3>
           <p className="text-slate-400 text-sm mb-4 line-clamp-2 leading-relaxed">

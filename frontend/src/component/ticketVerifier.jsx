@@ -15,7 +15,7 @@ const TicketVerifier = () => {
     setResult(null);
 
     try {
-      const { data } = await API.post('/bookings/verify', { ticketToken });
+      const { data } = await API.post('/bookings/verify-ticket', { qrCodeString: ticketToken });
       setResult(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Invalid or already used ticket.');
@@ -66,13 +66,13 @@ const TicketVerifier = () => {
             <span>Valid Ticket — Check-In Approved!</span>
           </div>
           <p className="text-xs text-slate-300">
-            Event: <span className="text-white font-medium">{result.event?.title || 'Confirmed Event'}</span>
+            Event: <span className="text-white font-medium">{result.event || 'Confirmed Event'}</span>
           </p>
           <p className="text-xs text-slate-300">
-            Customer: <span className="text-white font-medium">{result.user?.name || 'Verified Attendee'}</span>
+            Customer: <span className="text-white font-medium">{result.attendee || 'Verified Attendee'}</span>
           </p>
           <p className="text-xs text-slate-300">
-            Seats: <span className="text-white font-medium">{result.quantity || 1}</span>
+            Seats: <span className="text-white font-medium">{result.ticketsCount || 1}</span>
           </p>
         </div>
       )}
