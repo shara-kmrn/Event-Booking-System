@@ -7,7 +7,16 @@ import Event from '../models/event.js';
 // @access  Private (Customer / Authenticated User)
 export const createBooking = async (req, res) => {
   try {
-    const { eventId, ticketQuantity } = req.body;
+    const {
+      eventId,
+      ticketQuantity,
+      ticketType,
+      customerName,
+      customerEmail,
+      customerPhone,
+      paymentMethod,
+      stripePaymentIntentId,
+    } = req.body;
     const quantity = Number(ticketQuantity);
 
     if (!quantity || quantity < 1) {
@@ -19,15 +28,35 @@ export const createBooking = async (req, res) => {
       return res.status(404).json({ message: 'Event not found' });
     }
 
-    // 1. Capacity Check
+    // 1. Capacity Check overall
     if (event.availableTickets < quantity) {
       return res.status(400).json({
         message: `Not enough tickets available. Only ${event.availableTickets} tickets remaining.`,
       });
     }
 
+    // Check specific ticket tier if ticketType provided
+    let unitPrice = event.ticketPrice;
+    let selectedTierName = ticketType || 'General';
+
+    if (Array.isArray(event.ticketTypes) && event.ticketTypes.length > 0) {
+      const tier = event.ticketTypes.find(
+        (t) => t.name === ticketType || t._id?.toString() === ticketType
+      );
+      if (tier) {
+        if (tier.availableQuantity < quantity) {
+          return res.status(400).json({
+            message: `Not enough tickets available for ${tier.name}. Only ${tier.availableQuantity} left.`,
+          });
+        }
+        unitPrice = tier.price;
+        selectedTierName = tier.name;
+        tier.availableQuantity -= quantity;
+      }
+    }
+
     // 2. Financial Calculations (5% Platform Fee Split)
-    const totalAmount = event.ticketPrice * quantity;
+    const totalAmount = unitPrice * quantity;
     const platformFee = Math.round(totalAmount * 0.05 * 100) / 100; // 5% fee
     const organizerRevenue = Math.round((totalAmount - platformFee) * 100) / 100; // 95% revenue
 
@@ -40,6 +69,12 @@ export const createBooking = async (req, res) => {
       tenantId: event.tenantId, // Isolated to Event Organizer
       customerId: req.user._id,
       ticketQuantity: quantity,
+      ticketType: selectedTierName,
+      customerName: customerName || req.user.name,
+      customerEmail: customerEmail || req.user.email,
+      customerPhone: customerPhone || req.user.contactNumber || '',
+      paymentMethod: paymentMethod || 'Stripe Payment Gateway',
+      stripePaymentIntentId: stripePaymentIntentId || '',
       totalAmount,
       platformFee,
       organizerRevenue,
@@ -66,7 +101,14 @@ export const createBooking = async (req, res) => {
 export const getMyBookings = async (req, res) => {
   try {
     const bookings = await Booking.find({ customerId: req.user._id })
-      .populate('eventId', 'title date location bannerUrl ticketPrice')
+      .populate({
+        path: 'eventId',
+        select: 'title date startTime endTime location bannerUrl ticketPrice tenantId contactEmail contactPhone category',
+        populate: {
+          path: 'tenantId',
+          select: 'name email',
+        },
+      })
       .sort({ createdAt: -1 });
 
     res.status(200).json(bookings);

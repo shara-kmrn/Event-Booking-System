@@ -17,14 +17,15 @@ export const protect = async (req, res, next) => {
         return res.status(401).json({ message: 'User no longer exists' });
       }
 
-      next();
+      return next();
     } catch (error) {
-      return res.status(401).json({ message: 'Not authorized, token failed' });
+      console.error('Auth verification error:', error.message);
+      return res.status(401).json({ message: `Session expired or token invalid (${error.message}). Please log in again.` });
     }
   }
 
   if (!token) {
-    return res.status(401).json({ message: 'Not authorized, no token provided' });
+    return res.status(401).json({ message: 'Not authorized, no token provided. Please log in.' });
   }
 };
 

@@ -5,7 +5,22 @@ import Event from '../models/event.js';
 // @access  Private (Organizer)
 export const createEvent = async (req, res) => {
   try {
-    const { title, description, bannerUrl, date, location, ticketPrice, totalCapacity } = req.body;
+    const {
+      title,
+      description,
+      category,
+      bannerUrl,
+      date,
+      startTime,
+      endTime,
+      location,
+      ticketPrice,
+      totalCapacity,
+      ticketTypes,
+      contactEmail,
+      contactPhone,
+      status = 'published',
+    } = req.body;
 
     // Multi-tenant Subscription Limit Check (Free tier = max 2 events)
     if (req.user.subscriptionPlan === 'free') {
@@ -17,16 +32,50 @@ export const createEvent = async (req, res) => {
       }
     }
 
+    let processedTicketTypes = [];
+    let calculatedCapacity = Number(totalCapacity || 0);
+    let startingPrice = Number(ticketPrice || 0);
+
+    if (Array.isArray(ticketTypes) && ticketTypes.length > 0) {
+      processedTicketTypes = ticketTypes.map((t) => ({
+        name: t.name || 'General',
+        price: Number(t.price || 0),
+        quantity: Number(t.quantity || 0),
+        availableQuantity: Number(t.quantity || 0),
+      }));
+      calculatedCapacity = processedTicketTypes.reduce((sum, t) => sum + t.quantity, 0);
+      startingPrice = Math.min(...processedTicketTypes.map((t) => t.price));
+    } else {
+      processedTicketTypes = [
+        {
+          name: 'General',
+          price: startingPrice,
+          quantity: calculatedCapacity,
+          availableQuantity: calculatedCapacity,
+        },
+      ];
+    }
+
+    const isPublished = status === 'published';
+
     const event = await Event.create({
       tenantId: req.user._id,
       title,
       description,
-      bannerUrl,
+      category: category || 'Music & Concerts',
+      bannerUrl: bannerUrl || '',
       date,
+      startTime: startTime || '07:00 PM',
+      endTime: endTime || '11:00 PM',
       location,
-      ticketPrice,
-      totalCapacity,
-      availableTickets: totalCapacity, // Initially all tickets are available
+      ticketPrice: startingPrice,
+      totalCapacity: calculatedCapacity,
+      availableTickets: calculatedCapacity,
+      ticketTypes: processedTicketTypes,
+      contactEmail: contactEmail || req.user?.email || '',
+      contactPhone: contactPhone || '',
+      status: status || 'published',
+      isPublished,
     });
 
     res.status(201).json(event);
@@ -67,7 +116,7 @@ export const getOrganizerEvents = async (req, res) => {
 // @access  Public
 export const getEventById = async (req, res) => {
   try {
-    const event = await Event.findById(req.params.id).populate('tenantId', 'name email');
+    const event = await Event.findById(req.params.id).populate('tenantId', 'name email contactNumber subscriptionPlan');
 
     if (!event) {
       return res.status(404).json({ message: 'Event not found' });

@@ -44,7 +44,12 @@ export const registerUser = async (req, res) => {
   try {
     const { firstName, lastName, name, contactNumber, email, verificationMethod, password, role } = req.body;
 
-    const userExists = await User.findOne({ email });
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required.' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const userExists = await User.findOne({ email: normalizedEmail });
 
     // Generate fresh OTP code & expiry (10 mins)
     const otp = generateOTP();
@@ -68,10 +73,11 @@ export const registerUser = async (req, res) => {
           message: 'An unverified account exists. A fresh OTP code has been sent to your email.',
           email: userExists.email,
           requiresVerification: true,
+          otp: process.env.SMTP_HOST ? undefined : otp,
         });
       }
 
-      return res.status(400).json({ message: 'User already exists with this email address.' });
+      return res.status(400).json({ message: 'An account with this email address already exists. Please sign in or reset your password.' });
     }
 
     const assignedRole = role === 'organizer' ? 'organizer' : 'customer';
@@ -82,7 +88,7 @@ export const registerUser = async (req, res) => {
       lastName,
       name: computedName,
       contactNumber,
-      email,
+      email: normalizedEmail,
       verificationMethod: verificationMethod || 'email',
       password,
       role: assignedRole,
@@ -103,9 +109,14 @@ export const registerUser = async (req, res) => {
       message: 'Registration successful! Verification code sent to your email.',
       email: user.email,
       requiresVerification: true,
+      otp: process.env.SMTP_HOST ? undefined : otp,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Registration Error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'An account with this email address already exists. Please sign in.' });
+    }
+    res.status(500).json({ message: error.message || 'Server error during registration' });
   }
 };
 
@@ -198,7 +209,10 @@ export const resendOTP = async (req, res) => {
       otp,
     });
 
-    res.status(200).json({ message: 'A fresh OTP code has been sent to your email.' });
+    res.status(200).json({
+      message: 'A fresh OTP code has been sent to your email.',
+      otp: process.env.SMTP_HOST ? undefined : otp,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
