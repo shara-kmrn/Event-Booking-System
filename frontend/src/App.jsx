@@ -3,6 +3,7 @@ import { AuthProvider } from './context/authContext';
 import Navbar from './component/navbar';
 import ProtectedRoute from './component/protectedRoutes';
 import OrganizerDashboard from './pages/organizerDashboard';
+import AdminDashboard from './pages/adminDashboard';
 import Home from './pages/home';
 import Login from './pages/login';
 import Register from './pages/register';
@@ -36,6 +37,16 @@ function App() {
                 element={
                   <ProtectedRoute allowedRoles={['organizer']}>
                     <OrganizerDashboard />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Superadmin Only Route */}
+              <Route
+                path="/admin/dashboard"
+                element={
+                  <ProtectedRoute allowedRoles={['superadmin']}>
+                    <AdminDashboard />
                   </ProtectedRoute>
                 }
               />

@@ -15,7 +15,7 @@ const TicketVerifier = () => {
     setResult(null);
 
     try {
-      const { data } = await API.post('/bookings/verify', { ticketToken });
+      const { data } = await API.post('/bookings/verify-ticket', { qrCodeString: ticketToken, ticketToken });
       setResult(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Invalid or already used ticket.');

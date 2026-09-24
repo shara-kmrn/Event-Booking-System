@@ -20,6 +20,12 @@ const bookingSchema = new mongoose.Schema(
       required: true,
     },
     ticketQuantity: { type: Number, required: true, min: 1 },
+    ticketType: { type: String, default: 'General' },
+    customerName: { type: String },
+    customerEmail: { type: String },
+    customerPhone: { type: String },
+    paymentMethod: { type: String, default: 'Stripe Payment Gateway' },
+    stripePaymentIntentId: { type: String },
     totalAmount: { type: Number, required: true },
     platformFee: { type: Number, required: true }, // e.g. 5% platform fee
     organizerRevenue: { type: Number, required: true }, // 95% organizer revenue
