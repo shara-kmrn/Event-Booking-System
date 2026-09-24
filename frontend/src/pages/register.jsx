@@ -46,6 +46,7 @@ const Register = () => {
   const [resendTimer, setResendTimer] = useState(60);
   const [registeredEmail, setRegisteredEmail] = useState('');
   const [assignedRole, setAssignedRole] = useState('customer');
+  const [devOtp, setDevOtp] = useState('');
 
   const inputRefs = useRef([]);
   const { register, verifyOtp, resendOtp, logout } = useAuth();
@@ -139,12 +140,15 @@ const Register = () => {
       const res = await register(payload);
       setRegisteredEmail(formData.email.trim());
       setAssignedRole(formData.role);
+      if (res.otp) setDevOtp(res.otp);
       setShowOtpModal(true);
       setResendTimer(60);
       setOtpError('');
       setOtpSuccess(res.message || 'OTP verification code sent to your email.');
     } catch (err) {
-      setError(err.response?.data?.message || 'Registration failed. Please try again.');
+      console.error('Registration Error Catch:', err);
+      const serverMsg = err.response?.data?.message || err.message;
+      setError(serverMsg || 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -217,6 +221,7 @@ const Register = () => {
     setOtpError('');
     try {
       const res = await resendOtp(registeredEmail);
+      if (res.otp) setDevOtp(res.otp);
       setOtpSuccess(res.message || 'Fresh OTP code sent to your email address.');
       setResendTimer(60);
       setOtpDigits(['', '', '', '', '', '']);
@@ -584,9 +589,18 @@ const Register = () => {
                 We sent a 6-digit OTP verification code to <br />
                 <span className="text-indigo-400 font-semibold">{registeredEmail}</span>
               </p>
-              <div className="mt-2 text-[11px] bg-slate-900/80 border border-slate-800 text-amber-300/90 py-1 px-3 rounded-full inline-flex items-center gap-1.5">
-                💡 Dev Note: Check your server terminal output for the OTP code
-              </div>
+
+              {devOtp ? (
+                <div className="mt-3 text-xs bg-indigo-950/90 border border-indigo-500/40 text-indigo-300 py-2 px-4 rounded-xl inline-flex items-center gap-2 font-semibold shadow-lg">
+                  <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Test Mode OTP:</span>
+                  <span className="font-mono text-white bg-indigo-600 px-2.5 py-0.5 rounded-md tracking-widest text-sm font-black border border-indigo-400">{devOtp}</span>
+                </div>
+              ) : (
+                <div className="mt-2 text-[11px] bg-slate-900/80 border border-slate-800 text-amber-300/90 py-1 px-3 rounded-full inline-flex items-center gap-1.5">
+                  💡 Dev Note: Check your server terminal output for the OTP code
+                </div>
+              )}
             </div>
 
             {otpError && (
