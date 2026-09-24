@@ -5,6 +5,7 @@ import {
   getOrganizerEvents,
   getEventById,
   deleteEvent,
+  getCategoriesPublic,
 } from '../controllers/eventController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -17,6 +18,7 @@ router.post('/', protect, authorize('organizer'), createEvent);
 router.delete('/:id', protect, authorize('organizer'), deleteEvent);
 
 // Public Routes
+router.get('/categories', getCategoriesPublic);
 router.get('/', getAllEvents);
 router.get('/:id', getEventById);
 

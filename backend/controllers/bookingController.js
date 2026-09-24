@@ -122,19 +122,26 @@ export const getMyBookings = async (req, res) => {
 // @access  Private (Organizer only)
 export const verifyTicket = async (req, res) => {
   try {
-    const { qrCodeString } = req.body;
+    const token = req.body.qrCodeString || req.body.ticketToken;
 
-    const booking = await Booking.findOne({ qrCodeString })
+    if (!token) {
+      return res.status(400).json({ valid: false, message: 'Ticket token or QR code string is required' });
+    }
+
+    const isMongoId = /^[0-9a-fA-F]{24}$/.test(token);
+    const booking = await Booking.findOne({
+      $or: [{ qrCodeString: token }, ...(isMongoId ? [{ _id: token }] : [])],
+    })
       .populate('eventId', 'title date location')
       .populate('customerId', 'name email');
 
     if (!booking) {
-      return res.status(404).json({ valid: false, message: 'Invalid ticket / Not found' });
+      return res.status(404).json({ valid: false, message: 'Invalid ticket / Not found in system' });
     }
 
     // Verify Organizer Ownership (Tenant Check)
     if (booking.tenantId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ valid: false, message: 'This ticket does not belong to your event' });
+      return res.status(403).json({ valid: false, message: 'This ticket belongs to another event / organizer' });
     }
 
     if (booking.isCheckedIn) {
@@ -142,6 +149,9 @@ export const verifyTicket = async (req, res) => {
         valid: false,
         message: 'Ticket has ALREADY BEEN USED for entry',
         booking,
+        event: booking.eventId,
+        user: booking.customerId,
+        quantity: booking.ticketQuantity,
       });
     }
 
@@ -152,9 +162,11 @@ export const verifyTicket = async (req, res) => {
     res.status(200).json({
       valid: true,
       message: 'Ticket verified successfully. Entry allowed!',
-      attendee: booking.customerId.name,
-      event: booking.eventId.title,
+      attendee: booking.customerId?.name || 'Customer',
+      user: booking.customerId,
+      event: booking.eventId,
       ticketsCount: booking.ticketQuantity,
+      quantity: booking.ticketQuantity,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

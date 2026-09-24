@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import API from '../api/axios';
 import EventCard from '../component/eventCard';
+import BookingModal from '../component/bookingModal';
 import { useAuth } from '../context/authContext';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -25,13 +26,20 @@ import {
   Radio
 } from 'lucide-react';
 
-const categoriesList = [
+const defaultCategories = [
   'All',
+  'Music & Concerts',
   'Conference',
   'Concert',
   'Workshop',
-  'Tech',
-  'Sports',
+  'Tech & IT',
+  'Sports & Fitness',
+  'Arts & Theatre',
+  'Parties & Entertainment',
+  'Business & Networking',
+  'Expos & Exhibitions',
+  'Seminars & Webinars',
+  'Food & Drink',
 ];
 
 const faqs = [
@@ -57,7 +65,9 @@ const Home = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [categoriesList, setCategoriesList] = useState(defaultCategories);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedBookingEvent, setSelectedBookingEvent] = useState(null);
   const [message, setMessage] = useState(null);
   const [openFaq, setOpenFaq] = useState(null);
   const [newsletterEmail, setNewsletterEmail] = useState('');
@@ -67,21 +77,22 @@ const Home = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchEvents();
+    fetchEventsWithCatch();
+    fetchCategories();
   }, []);
 
-  const fetchEvents = async () => {
+  const fetchCategories = async () => {
     try {
-      const { data } = await API.get('/events');
-      setEvents(data);
+      const { data } = await API.get('/events/categories');
+      if (Array.isArray(data) && data.length > 0) {
+        const catNames = data.map((c) => c.name);
+        setCategoriesList((prev) => Array.from(new Set(['All', ...prev, ...catNames])));
+      }
     } catch (err) {
-      console.error('Failed to load events', err);
-    } fontEndFinally: {
-      setLoading(false);
+      console.error('Failed to load dynamic categories', err);
     }
   };
 
-  // Safe fallback if finally block syntax
   const fetchEventsWithCatch = async () => {
     try {
       const { data } = await API.get('/events');
@@ -93,38 +104,22 @@ const Home = () => {
     }
   };
 
-  const handleBooking = async (event) => {
+  const handleBooking = (event) => {
     if (!user) {
       navigate('/login');
       return;
     }
-
-    try {
-      await API.post('/bookings', {
-        eventId: event._id,
-        quantity: 1,
-      });
-      setMessage({
-        type: 'success',
-        text: `🎉 Seat reserved successfully for "${event.title}"! View it in My Tickets.`,
-      });
-      fetchEventsWithCatch(); // Refresh remaining tickets
-      
-      // Auto dismiss message after 5 sec
-      setTimeout(() => setMessage(null), 6000);
-    } catch (err) {
-      setMessage({
-        type: 'error',
-        text: err.response?.data?.message || 'Booking failed. Please try again.',
-      });
-      setTimeout(() => setMessage(null), 6000);
-    }
+    setSelectedBookingEvent(event);
   };
 
   // Filter logic
   const filteredEvents = events.filter((evt) => {
+    const cat = evt.category?.toLowerCase() || '';
+    const sel = selectedCategory.toLowerCase();
     const matchesCategory =
-      selectedCategory === 'All' || evt.category === selectedCategory;
+      selectedCategory === 'All' ||
+      evt.category === selectedCategory ||
+      (cat && sel && (cat.includes(sel) || sel.includes(cat)));
     const matchesSearch =
       evt.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       evt.location?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -525,6 +520,23 @@ const Home = () => {
           </div>
         </div>
       </footer>
+
+      {/* Booking & Stripe Checkout Modal */}
+      {selectedBookingEvent && (
+        <BookingModal
+          event={selectedBookingEvent}
+          user={user}
+          onClose={() => setSelectedBookingEvent(null)}
+          onBookingSuccess={(booking) => {
+            setMessage({
+              type: 'success',
+              text: `🎉 Seat reserved & paid successfully for "${selectedBookingEvent.title}"! Ref: ${booking.qrCodeString || booking._id}`,
+            });
+            fetchEventsWithCatch();
+            setTimeout(() => setMessage(null), 7000);
+          }}
+        />
+      )}
 
     </div>
   );

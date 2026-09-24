@@ -1,4 +1,5 @@
 import Event from '../models/event.js';
+import Category from '../models/category.js';
 
 // @desc    Create a new event (Organizer only with Free-tier plan limit)
 // @route   POST /api/events
@@ -14,8 +15,10 @@ export const createEvent = async (req, res) => {
       startTime,
       endTime,
       location,
+      schedules,
       ticketPrice,
       totalCapacity,
+      totalTickets,
       ticketTypes,
       contactEmail,
       contactPhone,
@@ -33,15 +36,16 @@ export const createEvent = async (req, res) => {
     }
 
     let processedTicketTypes = [];
-    let calculatedCapacity = Number(totalCapacity || 0);
+    let calculatedCapacity = Number(totalCapacity || totalTickets || 0);
     let startingPrice = Number(ticketPrice || 0);
 
     if (Array.isArray(ticketTypes) && ticketTypes.length > 0) {
       processedTicketTypes = ticketTypes.map((t) => ({
         name: t.name || 'General',
         price: Number(t.price || 0),
-        quantity: Number(t.quantity || 0),
-        availableQuantity: Number(t.quantity || 0),
+        quantity: Number(t.quantity || t.totalTickets || 0),
+        availableQuantity: Number(t.quantity || t.totalTickets || 0),
+        expiryDate: t.expiryDate ? new Date(t.expiryDate) : null,
       }));
       calculatedCapacity = processedTicketTypes.reduce((sum, t) => sum + t.quantity, 0);
       startingPrice = Math.min(...processedTicketTypes.map((t) => t.price));
@@ -52,10 +56,32 @@ export const createEvent = async (req, res) => {
           price: startingPrice,
           quantity: calculatedCapacity,
           availableQuantity: calculatedCapacity,
+          expiryDate: null,
         },
       ];
     }
 
+    // Process schedules
+    let processedSchedules = [];
+    if (Array.isArray(schedules) && schedules.length > 0) {
+      processedSchedules = schedules.map((s) => ({
+        location: s.location || location || 'Main Venue',
+        date: s.date ? new Date(s.date) : (date ? new Date(date) : new Date()),
+        startTime: s.startTime || startTime || '07:00 PM',
+        endTime: s.endTime || endTime || '11:00 PM',
+      }));
+    } else {
+      processedSchedules = [
+        {
+          location: location || 'Main Venue',
+          date: date ? new Date(date) : new Date(),
+          startTime: startTime || '07:00 PM',
+          endTime: endTime || '11:00 PM',
+        },
+      ];
+    }
+
+    const primarySchedule = processedSchedules[0];
     const isPublished = status === 'published';
 
     const event = await Event.create({
@@ -64,10 +90,11 @@ export const createEvent = async (req, res) => {
       description,
       category: category || 'Music & Concerts',
       bannerUrl: bannerUrl || '',
-      date,
-      startTime: startTime || '07:00 PM',
-      endTime: endTime || '11:00 PM',
-      location,
+      date: primarySchedule.date,
+      startTime: primarySchedule.startTime,
+      endTime: primarySchedule.endTime,
+      location: primarySchedule.location,
+      schedules: processedSchedules,
       ticketPrice: startingPrice,
       totalCapacity: calculatedCapacity,
       availableTickets: calculatedCapacity,
@@ -150,3 +177,35 @@ export const deleteEvent = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// @desc    Get categories (Public API)
+// @route   GET /api/events/categories
+// @access  Public
+export const getCategoriesPublic = async (req, res) => {
+  try {
+    let categories = await Category.find({}).sort({ name: 1 });
+    if (!categories || categories.length === 0) {
+      const defaultCats = [
+        { name: 'Music & Concerts', description: 'Live concerts, music festivals, and gigs' },
+        { name: 'Conference', description: 'Professional and industry conferences' },
+        { name: 'Workshop', description: 'Interactive training and learning workshops' },
+        { name: 'Tech & IT', description: 'Technology, software, and hackathons' },
+        { name: 'Sports & Fitness', description: 'Sporting events, tournaments, and fitness' },
+        { name: 'Arts & Theatre', description: 'Drama, plays, art exhibitions, and cultural shows' },
+        { name: 'Parties & Entertainment', description: 'Nightlife, parties, and DJ events' },
+        { name: 'Business & Networking', description: 'Corporate events and networking meetups' },
+        { name: 'Expos & Exhibitions', description: 'Trade shows, expos, and fairs' },
+        { name: 'Seminars & Webinars', description: 'Educational seminars and webinars' },
+        { name: 'Food & Drink', description: 'Food festivals, wine tasting, and culinary events' },
+      ];
+      try {
+        categories = await Category.insertMany(defaultCats);
+      } catch (e) {
+        categories = defaultCats;
+      }
+    }
+    res.status(200).json(categories);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
