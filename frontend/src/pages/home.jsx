@@ -27,11 +27,14 @@ import {
 
 const categoriesList = [
   'All',
-  'Conference',
-  'Concert',
-  'Workshop',
-  'Tech',
+  'Music & Concerts',
+  'Exhibitions & Fairs',
+  'Theatre',
   'Sports',
+  'Health & Fitness',
+  'Travel & Adventure',
+  'Food & Drink',
+  'Entertainment',
 ];
 
 const faqs = [
@@ -93,32 +96,8 @@ const Home = () => {
     }
   };
 
-  const handleBooking = async (event) => {
-    if (!user) {
-      navigate('/login');
-      return;
-    }
-
-    try {
-      await API.post('/bookings', {
-        eventId: event._id,
-        quantity: 1,
-      });
-      setMessage({
-        type: 'success',
-        text: `🎉 Seat reserved successfully for "${event.title}"! View it in My Tickets.`,
-      });
-      fetchEventsWithCatch(); // Refresh remaining tickets
-      
-      // Auto dismiss message after 5 sec
-      setTimeout(() => setMessage(null), 6000);
-    } catch (err) {
-      setMessage({
-        type: 'error',
-        text: err.response?.data?.message || 'Booking failed. Please try again.',
-      });
-      setTimeout(() => setMessage(null), 6000);
-    }
+  const handleBooking = (event) => {
+    navigate(`/events/${event._id}`);
   };
 
   // Filter logic

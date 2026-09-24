@@ -8,6 +8,7 @@ import Home from './pages/home';
 import Login from './pages/login';
 import Register from './pages/register';
 import MyTickets from './pages/myTickets';
+import EventDetails from './pages/eventDetails';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <main className="flex-1">
             <Routes>
               <Route path="/" element={<Home />} />
+              <Route path="/events/:id" element={<EventDetails />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
 
