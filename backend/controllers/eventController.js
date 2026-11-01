@@ -1,5 +1,58 @@
 import Event from '../models/event.js';
 import Category from '../models/category.js';
+import { parseDateTime, calculateLifecycleStatus } from '../utils/dateUtils.js';
+
+// Helper to format event object with dynamic lifecycle status
+const formatEventWithStatus = (eventDoc, currentTime = new Date()) => {
+  const event = eventDoc.toObject ? eventDoc.toObject() : { ...eventDoc };
+  const status = calculateLifecycleStatus(event.startDateTime, event.endDateTime, currentTime);
+  const bookingAllowed = currentTime < new Date(event.startDateTime);
+
+  // Normalize locations array for frontend if empty
+  let locations = event.locations && event.locations.length > 0 ? event.locations : [];
+  if (locations.length === 0) {
+    const defaultTiers = (event.ticketTypes || []).map((t) => ({
+      _id: t._id,
+      name: t.name,
+      price: t.price,
+      totalQuantity: t.quantity || t.totalQuantity || 0,
+      soldQuantity: t.soldQuantity || 0,
+      availableQuantity: t.availableQuantity ?? (t.quantity - (t.soldQuantity || 0)),
+      expiryDate: t.expiryDate || null,
+      soldOut: (t.availableQuantity ?? (t.quantity - (t.soldQuantity || 0))) <= 0,
+    }));
+
+    locations = [
+      {
+        _id: event._id,
+        name: event.location || 'Main Venue',
+        address: '',
+        date: event.date,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        startDateTime: event.startDateTime,
+        endDateTime: event.endDateTime,
+        ticketTiers: defaultTiers,
+      },
+    ];
+  } else {
+    locations = locations.map((loc) => ({
+      ...loc,
+      ticketTiers: (loc.ticketTiers || []).map((tier) => ({
+        ...tier,
+        availableQuantity: Math.max(0, tier.availableQuantity ?? (tier.totalQuantity - (tier.soldQuantity || 0))),
+        soldOut: (tier.availableQuantity ?? (tier.totalQuantity - (tier.soldQuantity || 0))) <= 0,
+      })),
+    }));
+  }
+
+  return {
+    ...event,
+    eventStatus: status,
+    bookingAllowed,
+    locations,
+  };
+};
 
 // @desc    Create a new event (Organizer only with Free-tier plan limit)
 // @route   POST /api/events
@@ -12,9 +65,12 @@ export const createEvent = async (req, res) => {
       category,
       bannerUrl,
       date,
-      startTime,
-      endTime,
+      startTime = '07:00 PM',
+      endTime = '11:00 PM',
+      startDateTime: reqStartDateTime,
+      endDateTime: reqEndDateTime,
       location,
+      locations: reqLocations,
       schedules,
       ticketPrice,
       totalCapacity,
@@ -35,53 +91,141 @@ export const createEvent = async (req, res) => {
       }
     }
 
-    let processedTicketTypes = [];
-    let calculatedCapacity = Number(totalCapacity || totalTickets || 0);
+    const primaryDate = date ? new Date(date) : new Date();
+    const primaryStartDT = reqStartDateTime ? new Date(reqStartDateTime) : parseDateTime(primaryDate, startTime);
+    const primaryEndDT = reqEndDateTime ? new Date(reqEndDateTime) : parseDateTime(primaryDate, endTime);
+
+    // Ensure endDateTime is after startDateTime
+    if (primaryEndDT <= primaryStartDT) {
+      primaryEndDT.setTime(primaryStartDT.getTime() + 4 * 60 * 60 * 1000); // default +4h
+    }
+
+    // Process Location-based Ticket Tiers
+    let processedLocations = [];
+    let overallCapacity = 0;
+    let overallTicketTypes = [];
     let startingPrice = Number(ticketPrice || 0);
 
-    if (Array.isArray(ticketTypes) && ticketTypes.length > 0) {
-      processedTicketTypes = ticketTypes.map((t) => ({
-        name: t.name || 'General',
-        price: Number(t.price || 0),
-        quantity: Number(t.quantity || t.totalTickets || 0),
-        availableQuantity: Number(t.quantity || t.totalTickets || 0),
-        expiryDate: t.expiryDate ? new Date(t.expiryDate) : null,
-      }));
-      calculatedCapacity = processedTicketTypes.reduce((sum, t) => sum + t.quantity, 0);
-      startingPrice = Math.min(...processedTicketTypes.map((t) => t.price));
-    } else {
-      processedTicketTypes = [
+    if (Array.isArray(reqLocations) && reqLocations.length > 0) {
+      processedLocations = reqLocations.map((loc) => {
+        const locDate = loc.date ? new Date(loc.date) : primaryDate;
+        const locStartDT = loc.startDateTime ? new Date(loc.startDateTime) : parseDateTime(locDate, loc.startTime || startTime);
+        const locEndDT = loc.endDateTime ? new Date(loc.endDateTime) : parseDateTime(locDate, loc.endTime || endTime);
+
+        const tiers = (loc.ticketTiers || loc.ticketTypes || []).map((t) => {
+          const totalQty = Number(t.totalQuantity || t.quantity || 0);
+          const soldQty = Number(t.soldQuantity || 0);
+          const availQty = Math.max(0, totalQty - soldQty);
+          return {
+            name: t.name || 'General',
+            price: Number(t.price || 0),
+            totalQuantity: totalQty,
+            soldQuantity: soldQty,
+            availableQuantity: availQty,
+            expiryDate: t.expiryDate ? new Date(t.expiryDate) : null,
+          };
+        });
+
+        return {
+          name: loc.name || loc.location || 'Main Venue',
+          address: loc.address || '',
+          date: locDate,
+          startTime: loc.startTime || startTime,
+          endTime: loc.endTime || endTime,
+          startDateTime: locStartDT,
+          endDateTime: locEndDT,
+          ticketTiers: tiers,
+        };
+      });
+
+      // Collect all tiers across locations for legacy fallback
+      processedLocations.forEach((loc) => {
+        loc.ticketTiers.forEach((tier) => {
+          overallCapacity += tier.totalQuantity;
+          overallTicketTypes.push(tier);
+        });
+      });
+
+      if (overallTicketTypes.length > 0) {
+        startingPrice = Math.min(...overallTicketTypes.map((t) => t.price));
+      }
+    } else if (Array.isArray(ticketTypes) && ticketTypes.length > 0) {
+      // Legacy ticketTypes provided
+      overallTicketTypes = ticketTypes.map((t) => {
+        const qty = Number(t.quantity || t.totalQuantity || 0);
+        return {
+          name: t.name || 'General',
+          price: Number(t.price || 0),
+          totalQuantity: qty,
+          soldQuantity: 0,
+          availableQuantity: qty,
+          expiryDate: t.expiryDate ? new Date(t.expiryDate) : null,
+        };
+      });
+
+      overallCapacity = overallTicketTypes.reduce((sum, t) => sum + t.totalQuantity, 0);
+      startingPrice = Math.min(...overallTicketTypes.map((t) => t.price));
+
+      processedLocations = [
         {
-          name: 'General',
-          price: startingPrice,
-          quantity: calculatedCapacity,
-          availableQuantity: calculatedCapacity,
-          expiryDate: null,
+          name: location || 'Main Venue',
+          address: '',
+          date: primaryDate,
+          startTime,
+          endTime,
+          startDateTime: primaryStartDT,
+          endDateTime: primaryEndDT,
+          ticketTiers: overallTicketTypes,
+        },
+      ];
+    } else {
+      // Default single General tier
+      const cap = Number(totalCapacity || totalTickets || 100);
+      const defaultTier = {
+        name: 'General',
+        price: startingPrice,
+        totalQuantity: cap,
+        soldQuantity: 0,
+        availableQuantity: cap,
+        expiryDate: null,
+      };
+
+      overallCapacity = cap;
+      overallTicketTypes = [defaultTier];
+
+      processedLocations = [
+        {
+          name: location || 'Main Venue',
+          address: '',
+          date: primaryDate,
+          startTime,
+          endTime,
+          startDateTime: primaryStartDT,
+          endDateTime: primaryEndDT,
+          ticketTiers: [defaultTier],
         },
       ];
     }
 
-    // Process schedules
+    // Process schedules for legacy compatibility
     let processedSchedules = [];
     if (Array.isArray(schedules) && schedules.length > 0) {
       processedSchedules = schedules.map((s) => ({
         location: s.location || location || 'Main Venue',
-        date: s.date ? new Date(s.date) : (date ? new Date(date) : new Date()),
-        startTime: s.startTime || startTime || '07:00 PM',
-        endTime: s.endTime || endTime || '11:00 PM',
+        date: s.date ? new Date(s.date) : primaryDate,
+        startTime: s.startTime || startTime,
+        endTime: s.endTime || endTime,
       }));
     } else {
-      processedSchedules = [
-        {
-          location: location || 'Main Venue',
-          date: date ? new Date(date) : new Date(),
-          startTime: startTime || '07:00 PM',
-          endTime: endTime || '11:00 PM',
-        },
-      ];
+      processedSchedules = processedLocations.map((loc) => ({
+        location: loc.name,
+        date: loc.date,
+        startTime: loc.startTime,
+        endTime: loc.endTime,
+      }));
     }
 
-    const primarySchedule = processedSchedules[0];
+    const primaryLocation = processedLocations[0];
     const isPublished = status === 'published';
 
     const event = await Event.create({
@@ -90,22 +234,46 @@ export const createEvent = async (req, res) => {
       description,
       category: category || 'Music & Concerts',
       bannerUrl: bannerUrl || '',
-      date: primarySchedule.date,
-      startTime: primarySchedule.startTime,
-      endTime: primarySchedule.endTime,
-      location: primarySchedule.location,
+      startDateTime: primaryStartDT,
+      endDateTime: primaryEndDT,
+      date: primaryLocation.date,
+      startTime: primaryLocation.startTime,
+      endTime: primaryLocation.endTime,
+      location: primaryLocation.name,
+      locations: processedLocations,
       schedules: processedSchedules,
       ticketPrice: startingPrice,
-      totalCapacity: calculatedCapacity,
-      availableTickets: calculatedCapacity,
-      ticketTypes: processedTicketTypes,
+      totalCapacity: overallCapacity,
+      availableTickets: overallCapacity,
+      ticketTypes: overallTicketTypes,
       contactEmail: contactEmail || req.user?.email || '',
       contactPhone: contactPhone || '',
       status: status || 'published',
       isPublished,
     });
 
-    res.status(201).json(event);
+    res.status(201).json(formatEventWithStatus(event));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get upcoming published events (Customer Home Page)
+// @route   GET /api/events/upcoming
+// @access  Public
+export const getUpcomingEvents = async (req, res) => {
+  try {
+    const currentTime = new Date();
+    // Filter events where startDateTime > currentTime and isPublished is true
+    const events = await Event.find({
+      isPublished: true,
+      startDateTime: { $gt: currentTime },
+    })
+      .populate('tenantId', 'name email')
+      .sort({ startDateTime: 1 });
+
+    const formattedEvents = events.map((e) => formatEventWithStatus(e, currentTime));
+    res.status(200).json(formattedEvents);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -116,11 +284,63 @@ export const createEvent = async (req, res) => {
 // @access  Public
 export const getAllEvents = async (req, res) => {
   try {
+    const currentTime = new Date();
     const events = await Event.find({ isPublished: true })
       .populate('tenantId', 'name email')
-      .sort({ date: 1 });
+      .sort({ startDateTime: 1 });
 
-    res.status(200).json(events);
+    const formattedEvents = events.map((e) => formatEventWithStatus(e, currentTime));
+    res.status(200).json(formattedEvents);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get location-based and tier-based availability for an event
+// @route   GET /api/events/:eventId/availability
+// @access  Public
+export const getEventAvailability = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.eventId);
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    const currentTime = new Date();
+    const status = calculateLifecycleStatus(event.startDateTime, event.endDateTime, currentTime);
+    const bookingAllowed = currentTime < new Date(event.startDateTime);
+
+    const formatted = formatEventWithStatus(event, currentTime);
+
+    const locationBreakdown = (formatted.locations || []).map((loc) => ({
+      locationId: loc._id,
+      name: loc.name,
+      address: loc.address || '',
+      date: loc.date,
+      startTime: loc.startTime,
+      endTime: loc.endTime,
+      startDateTime: loc.startDateTime,
+      endDateTime: loc.endDateTime,
+      ticketTiers: (loc.ticketTiers || []).map((tier) => ({
+        ticketTierId: tier._id,
+        name: tier.name,
+        price: tier.price,
+        totalQuantity: tier.totalQuantity,
+        soldQuantity: tier.soldQuantity || 0,
+        availableQuantity: tier.availableQuantity,
+        soldOut: tier.soldOut || tier.availableQuantity <= 0,
+      })),
+    }));
+
+    res.status(200).json({
+      eventId: event._id,
+      eventTitle: event.title,
+      eventStatus: status,
+      bookingAllowed,
+      startDateTime: event.startDateTime,
+      endDateTime: event.endDateTime,
+      locations: locationBreakdown,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -131,8 +351,10 @@ export const getAllEvents = async (req, res) => {
 // @access  Private (Organizer)
 export const getOrganizerEvents = async (req, res) => {
   try {
+    const currentTime = new Date();
     const events = await Event.find({ tenantId: req.user._id }).sort({ createdAt: -1 });
-    res.status(200).json(events);
+    const formattedEvents = events.map((e) => formatEventWithStatus(e, currentTime));
+    res.status(200).json(formattedEvents);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -149,7 +371,8 @@ export const getEventById = async (req, res) => {
       return res.status(404).json({ message: 'Event not found' });
     }
 
-    res.status(200).json(event);
+    const currentTime = new Date();
+    res.status(200).json(formatEventWithStatus(event, currentTime));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -208,4 +431,5 @@ export const getCategoriesPublic = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-};
+};
+

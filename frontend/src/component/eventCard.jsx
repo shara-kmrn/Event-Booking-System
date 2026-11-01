@@ -1,4 +1,4 @@
-import { Calendar, MapPin, Tag, ArrowRight, Zap, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Calendar, MapPin, Tag, ArrowRight, Zap, AlertCircle, Clock } from 'lucide-react';
 
 const categoryColors = {
   Conference: 'from-blue-500/20 to-indigo-500/20 text-blue-300 border-blue-500/30',
@@ -22,14 +22,19 @@ const EventCard = ({ event, onBook }) => {
   const isSoldOut = event.availableTickets <= 0;
   const categoryKey = event.category && categoryColors[event.category] ? event.category : 'General';
   const badgeStyle = categoryColors[categoryKey];
-  const coverImage = event.image || defaultCategoryImages[categoryKey];
+  const coverImage = event.bannerUrl || event.image || defaultCategoryImages[categoryKey];
 
-  const totalTickets = event.totalTickets || 100;
+  const totalTickets = event.totalCapacity || event.totalTickets || 100;
   const remainingTickets = event.availableTickets ?? 0;
   const bookedPercent = Math.min(100, Math.max(0, Math.round(((totalTickets - remainingTickets) / totalTickets) * 100)));
 
+  const eventStatus = event.eventStatus || 'UPCOMING';
+  const isOngoing = eventStatus === 'ONGOING';
+  const isCompleted = eventStatus === 'COMPLETED';
+  const isBookingAllowed = event.bookingAllowed !== false && eventStatus === 'UPCOMING' && !isSoldOut;
+
   return (
-    <div className="group glass-card rounded-2xl overflow-hidden flex flex-col justify-between transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-indigo-500/15 relative">
+    <div className="group glass-card rounded-2xl overflow-hidden flex flex-col justify-between transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-indigo-500/15 relative border border-slate-800">
       
       {/* Top Banner Image with Gradient Overlay */}
       <div className="relative h-48 w-full overflow-hidden bg-slate-900">
@@ -41,10 +46,21 @@ const EventCard = ({ event, onBook }) => {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
         
-        {/* Category Badge */}
-        <div className="absolute top-3 left-3">
+        {/* Category Badge & Status Badge */}
+        <div className="absolute top-3 left-3 flex items-center gap-2">
           <span className={`text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full border backdrop-blur-md bg-gradient-to-r ${badgeStyle}`}>
             {event.category || 'General'}
+          </span>
+          <span
+            className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border backdrop-blur-md ${
+              isCompleted
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                : isOngoing
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+            }`}
+          >
+            {eventStatus}
           </span>
         </div>
 
@@ -74,13 +90,14 @@ const EventCard = ({ event, onBook }) => {
                 <Calendar className="w-3.5 h-3.5" />
               </div>
               <span className="font-medium text-slate-200">
-                {new Date(event.date).toLocaleDateString(undefined, {
+                {new Date(event.startDateTime || event.date).toLocaleDateString(undefined, {
                   weekday: 'short',
                   year: 'numeric',
                   month: 'short',
                   day: 'numeric',
                 })}
               </span>
+              <span className="text-slate-400">({event.startTime || '07:00 PM'})</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="p-1 rounded bg-purple-500/10 text-purple-400">
@@ -105,8 +122,10 @@ const EventCard = ({ event, onBook }) => {
           <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-4">
             <div
               className={`h-full transition-all duration-500 ${
-                isSoldOut
+                isSoldOut || isCompleted
                   ? 'bg-rose-500'
+                  : isOngoing
+                  ? 'bg-amber-400'
                   : bookedPercent > 80
                   ? 'bg-amber-400'
                   : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400'
@@ -117,22 +136,30 @@ const EventCard = ({ event, onBook }) => {
 
           {/* Action Button */}
           <button
-            onClick={() => onBook(event)}
-            disabled={isSoldOut}
-            className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all duration-200 shadow-md cursor-pointer ${
-              isSoldOut
+            onClick={() => isBookingAllowed && onBook(event)}
+            disabled={!isBookingAllowed}
+            className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all duration-200 shadow-md ${
+              !isBookingAllowed
                 ? 'bg-slate-800/80 text-slate-500 border border-slate-700/50 cursor-not-allowed'
-                : 'bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-500/25 hover:shadow-indigo-500/40 active:scale-[0.98]'
+                : 'bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-500/25 hover:shadow-indigo-500/40 cursor-pointer active:scale-[0.98]'
             }`}
           >
-            {isSoldOut ? (
+            {isCompleted ? (
               <>
-                <AlertCircle className="w-4 h-4" /> Fully Booked
+                <Clock className="w-4 h-4 text-rose-400" /> Event Ended
+              </>
+            ) : isOngoing || event.bookingAllowed === false ? (
+              <>
+                <AlertCircle className="w-4 h-4 text-amber-400" /> Booking Closed
+              </>
+            ) : isSoldOut ? (
+              <>
+                <AlertCircle className="w-4 h-4 text-rose-400" /> Sold Out
               </>
             ) : (
               <>
                 <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
-                Book Ticket Now
+                Book Now
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </>
             )}
@@ -144,4 +171,4 @@ const EventCard = ({ event, onBook }) => {
   );
 };
 
-export default EventCard;
+export default EventCard;

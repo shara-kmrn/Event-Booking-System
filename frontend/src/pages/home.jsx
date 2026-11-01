@@ -95,10 +95,10 @@ const Home = () => {
 
   const fetchEventsWithCatch = async () => {
     try {
-      const { data } = await API.get('/events');
+      const { data } = await API.get('/events/upcoming');
       setEvents(data);
     } catch (err) {
-      console.error('Failed to load events', err);
+      console.error('Failed to load upcoming events', err);
     } finally {
       setLoading(false);
     }

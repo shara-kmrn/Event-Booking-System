@@ -12,11 +12,13 @@ import {
   Download,
   AlertCircle,
   Sparkles,
+  History,
 } from 'lucide-react';
 
 const MyTickets = () => {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('upcoming'); // 'upcoming' or 'past'
 
   useEffect(() => {
     fetchMyBookings();
@@ -33,6 +35,23 @@ const MyTickets = () => {
     }
   };
 
+  const currentTime = new Date();
+
+  // Categorize bookings into Upcoming vs Past
+  const upcomingBookings = bookings.filter((b) => {
+    const startDT = b.eventId?.startDateTime ? new Date(b.eventId.startDateTime) : (b.eventId?.date ? new Date(b.eventId.date) : null);
+    if (!startDT) return true;
+    return startDT > currentTime || b.isUpcoming === true;
+  });
+
+  const pastBookings = bookings.filter((b) => {
+    const endDT = b.eventId?.endDateTime ? new Date(b.eventId.endDateTime) : (b.eventId?.date ? new Date(b.eventId.date) : null);
+    if (!endDT) return false;
+    return endDT <= currentTime || b.isUpcoming === false;
+  });
+
+  const displayedBookings = activeTab === 'upcoming' ? upcomingBookings : pastBookings;
+
   return (
     <div className="min-h-screen bg-[#030712] text-slate-100 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -46,11 +65,37 @@ const MyTickets = () => {
             </div>
             <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
               <TicketIcon className="w-8 h-8 text-indigo-400" />
-              My Tickets & Bookings
+              My Bookings & Digital Passes
             </h1>
             <p className="text-slate-400 text-sm mt-1">
               Present your QR token at the event entrance for rapid gate scanning and check-in.
             </p>
+          </div>
+
+          {/* Tab Selector */}
+          <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 p-1.5 rounded-2xl">
+            <button
+              onClick={() => setActiveTab('upcoming')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                activeTab === 'upcoming'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <TicketIcon className="w-4 h-4" />
+              Upcoming ({upcomingBookings.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('past')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                activeTab === 'past'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <History className="w-4 h-4" />
+              Past Bookings ({pastBookings.length})
+            </button>
           </div>
         </div>
 
@@ -60,32 +105,38 @@ const MyTickets = () => {
             <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-slate-400 text-sm">Fetching your digital gate passes...</p>
           </div>
-        ) : bookings.length === 0 ? (
+        ) : displayedBookings.length === 0 ? (
           <div className="glass-card rounded-3xl p-12 text-center max-w-lg mx-auto border border-slate-800 space-y-4">
             <div className="w-16 h-16 bg-indigo-500/10 border border-indigo-500/30 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
               <TicketIcon className="w-8 h-8" />
             </div>
-            <h3 className="text-xl font-bold text-white">No Tickets Booked Yet</h3>
+            <h3 className="text-xl font-bold text-white">
+              {activeTab === 'upcoming' ? 'No Upcoming Bookings' : 'No Past Bookings'}
+            </h3>
             <p className="text-slate-400 text-sm">
-              You haven't reserved tickets for any events. Browse upcoming events to get your gate passes!
+              {activeTab === 'upcoming'
+                ? "You haven't reserved tickets for any upcoming events. Browse events to secure your seats!"
+                : 'Your past completed event bookings will be preserved here for your reference.'}
             </p>
             <a
               href="/"
               className="inline-block px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-xl text-xs shadow-lg shadow-indigo-500/25 transition hover:scale-105"
             >
-              Explore Events
+              Explore Upcoming Events
             </a>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {bookings.map((booking) => {
+            {displayedBookings.map((booking) => {
               const event = booking.eventId || booking.event || {};
-              const qrToken = booking.qrCodeString || booking.ticketToken || booking._id;
-              const isCheckedIn = booking.isCheckedIn;
-              const status = booking.paymentStatus || booking.status || 'paid';
+              const qrToken = booking.qrToken || booking.qrCodeString || booking._id;
+              const bookingIdStr = booking.bookingId || booking._id;
+              const isCheckedIn = booking.isCheckedIn || booking.ticketStatus === 'USED';
+              const payStatus = (booking.paymentStatus || 'paid').toUpperCase();
               const ticketQty = booking.ticketQuantity || booking.quantity || 1;
               const totalAmount = booking.totalAmount || booking.totalPrice || 0;
               const ticketTier = booking.ticketType || 'General';
+              const locationDisplay = booking.locationName || event.location || 'Main Venue';
 
               return (
                 <div
@@ -101,27 +152,30 @@ const MyTickets = () => {
                       <h3 className="text-xl font-extrabold text-white leading-tight">
                         {event.title || 'Event Details'}
                       </h3>
+                      <p className="text-[11px] font-mono text-slate-400 mt-0.5">Booking ID: {bookingIdStr}</p>
                     </div>
 
                     <div className="flex flex-col items-end gap-1.5">
                       <span
                         className={`text-[10px] font-extrabold uppercase px-3 py-1 rounded-full border ${
-                          status === 'paid' || status === 'confirmed'
+                          payStatus === 'PAID' || payStatus === 'CONFIRMED'
                             ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                             : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
                         }`}
                       >
-                        ✓ {status.toUpperCase()}
+                        ✓ {payStatus}
                       </span>
 
                       <span
                         className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${
                           isCheckedIn
                             ? 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                            : activeTab === 'past'
+                            ? 'bg-slate-800 text-slate-400 border-slate-700'
                             : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
                         }`}
                       >
-                        {isCheckedIn ? 'Checked In' : 'Valid for Gate'}
+                        {isCheckedIn ? 'Checked In (USED)' : activeTab === 'past' ? 'Event Ended' : 'Valid for Gate'}
                       </span>
                     </div>
                   </div>
@@ -134,12 +188,12 @@ const MyTickets = () => {
                           <Calendar className="w-4 h-4" />
                         </div>
                         <span className="font-semibold text-slate-200">
-                          {event.date ? new Date(event.date).toLocaleDateString(undefined, {
+                          {event.date || event.startDateTime ? new Date(event.startDateTime || event.date).toLocaleDateString(undefined, {
                             weekday: 'short',
                             year: 'numeric',
                             month: 'short',
                             day: 'numeric',
-                          }) : 'Date TBA'}
+                          }) : 'Date TBA'} ({event.startTime || '07:00 PM'})
                         </span>
                       </div>
 
@@ -147,7 +201,7 @@ const MyTickets = () => {
                         <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
                           <MapPin className="w-4 h-4" />
                         </div>
-                        <span className="truncate text-slate-300">{event.location || 'Location TBA'}</span>
+                        <span className="truncate text-slate-300">{locationDisplay}</span>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -160,14 +214,14 @@ const MyTickets = () => {
                       </div>
                     </div>
 
-                    {/* QR Code Pass Box */}
+                    {/* QR Code Pass Box (Only active for upcoming/valid bookings or display token) */}
                     <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col items-center justify-center gap-3 text-center">
                       <div className="bg-white p-3 rounded-xl shadow-xl shadow-indigo-500/10 border-2 border-indigo-400">
                         <QRCodeSVG value={qrToken} size={140} level="H" />
                       </div>
 
                       <div>
-                        <p className="text-[11px] text-slate-400 font-medium mb-0.5">Scan Code at Gate Pass Entry</p>
+                        <p className="text-[11px] text-slate-400 font-medium mb-0.5">Secure Gate Check-In QR Pass</p>
                         <p className="text-xs font-mono font-bold text-indigo-300 tracking-wider break-all select-all">
                           {qrToken}
                         </p>

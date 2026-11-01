@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import API from '../api/axios';
 import {
   X,
@@ -18,6 +18,7 @@ import {
   MapPin,
   QrCode,
   Check,
+  AlertCircle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -36,10 +37,56 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
   // Step state: 1 = Event & Tickets, 2 = Customer Details, 3 = Payment, 4 = Confirmation
   const [step, setStep] = useState(1);
 
-  const [quantity, setQuantity] = useState(1);
-  const [selectedTier, setSelectedTier] = useState(
-    event.ticketTypes && event.ticketTypes.length > 0 ? event.ticketTypes[0].name : 'General'
+  // Multi-location state
+  const locations = event.locations && event.locations.length > 0 ? event.locations : [
+    {
+      _id: event._id,
+      name: event.location || 'Main Venue',
+      ticketTiers: event.ticketTypes || [
+        { name: 'General', price: event.ticketPrice || 0, availableQuantity: event.availableTickets || 0, totalQuantity: event.totalCapacity || 100 }
+      ],
+    }
+  ];
+
+  const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?._id?.toString() || locations[0]?.name);
+
+  // Active location object
+  const activeLocation = locations.find(
+    (loc) => loc._id?.toString() === selectedLocationId || loc.name === selectedLocationId
+  ) || locations[0];
+
+  const activeTiers = activeLocation?.ticketTiers && activeLocation.ticketTiers.length > 0
+    ? activeLocation.ticketTiers
+    : (event.ticketTypes || []);
+
+  // Find first available tier
+  const firstAvailTier = activeTiers.find((t) => (t.availableQuantity ?? (t.totalQuantity - (t.soldQuantity || 0))) > 0) || activeTiers[0];
+
+  const [selectedTierId, setSelectedTierId] = useState(firstAvailTier?._id?.toString() || firstAvailTier?.name || 'General');
+  const [selectedTierName, setSelectedTierName] = useState(firstAvailTier?.name || 'General');
+
+  // Sync tier selection when location changes
+  useEffect(() => {
+    if (activeTiers && activeTiers.length > 0) {
+      const avail = activeTiers.find((t) => (t.availableQuantity ?? (t.totalQuantity - (t.soldQuantity || 0))) > 0) || activeTiers[0];
+      setSelectedTierId(avail?._id?.toString() || avail?.name || 'General');
+      setSelectedTierName(avail?.name || 'General');
+    }
+  }, [selectedLocationId]);
+
+  const activeTierObj = activeTiers.find(
+    (t) => t._id?.toString() === selectedTierId || t.name === selectedTierId || t.name === selectedTierName
+  ) || activeTiers[0];
+
+  const maxAvailable = Math.max(0, activeTierObj?.availableQuantity ?? (activeTierObj?.totalQuantity - (activeTierObj?.soldQuantity || 0)) ?? event.availableTickets ?? 0);
+  const isTierSoldOut = maxAvailable <= 0;
+
+  // Check if ALL tiers in selected location are sold out
+  const allLocationTiersSoldOut = activeTiers.every(
+    (t) => (t.availableQuantity ?? (t.totalQuantity - (t.soldQuantity || 0))) <= 0
   );
+
+  const [quantity, setQuantity] = useState(1);
   const [customerName, setCustomerName] = useState(user?.name || '');
   const [customerEmail, setCustomerEmail] = useState(user?.email || '');
   const [customerPhone, setCustomerPhone] = useState(user?.contactNumber || '');
@@ -53,22 +100,20 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
   const [error, setError] = useState('');
   const [successData, setSuccessData] = useState(null);
 
-  // Price calculations
-  let unitPrice = event.ticketPrice;
-  if (event.ticketTypes && event.ticketTypes.length > 0) {
-    const tierObj = event.ticketTypes.find((t) => t.name === selectedTier);
-    if (tierObj) unitPrice = tierObj.price;
-  }
-
-  const maxAvailable = event.availableTickets || 1;
+  const unitPrice = activeTierObj?.price ?? event.ticketPrice ?? 0;
   const subtotal = unitPrice * quantity;
   const platformFee = Math.round(subtotal * 0.05 * 100) / 100;
   const grandTotal = Math.round((subtotal + platformFee) * 100) / 100;
 
-  const coverImage = event.image || defaultCategoryImages[event.category] || defaultCategoryImages.General;
+  const coverImage = event.bannerUrl || event.image || defaultCategoryImages[event.category] || defaultCategoryImages.General;
 
   const handleStep1Next = (e) => {
     e.preventDefault();
+    if (allLocationTiersSoldOut || isTierSoldOut) {
+      setError('Selected ticket tier is sold out. Please select another tier or location.');
+      return;
+    }
+    setError('');
     setStep(2);
   };
 
@@ -93,8 +138,10 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
       try {
         const { data: intentRes } = await API.post('/payment/create-payment-intent', {
           eventId: event._id,
+          locationId: activeLocation._id || selectedLocationId,
+          ticketTierId: activeTierObj._id || selectedTierId,
           ticketQuantity: quantity,
-          ticketType: selectedTier,
+          ticketType: selectedTierName,
         });
         if (intentRes.paymentIntentId) {
           intentId = intentRes.paymentIntentId;
@@ -106,8 +153,10 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
       // 2. Process Atomic Booking
       const { data: bookingRes } = await API.post('/bookings', {
         eventId: event._id,
+        locationId: activeLocation._id || selectedLocationId,
+        ticketTierId: activeTierObj._id || selectedTierId,
         ticketQuantity: quantity,
-        ticketType: selectedTier,
+        ticketType: selectedTierName,
         customerName,
         customerEmail,
         customerPhone,
@@ -126,7 +175,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
   };
 
   const stepsList = [
-    { num: 1, label: 'Event Details & Tickets' },
+    { num: 1, label: 'Location & Tickets' },
     { num: 2, label: 'Checkout Info' },
     { num: 3, label: 'Payment' },
     { num: 4, label: 'Confirmation' },
@@ -146,7 +195,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
             </div>
             <div>
               <h3 className="text-base sm:text-lg font-bold text-white leading-snug line-clamp-1">{event.title}</h3>
-              <p className="text-xs text-slate-400">Atomic Booking Wizard</p>
+              <p className="text-xs text-slate-400">Atomic Seat Reservation</p>
             </div>
           </div>
           <button
@@ -206,7 +255,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
             </div>
           )}
 
-          {/* ==================== STEP 1: EVENT DETAILS & TICKET SELECTION ==================== */}
+          {/* ==================== STEP 1: LOCATION & TICKET SELECTION ==================== */}
           {step === 1 && (
             <form onSubmit={handleStep1Next} className="space-y-5 animate-in fade-in duration-300">
               
@@ -222,63 +271,39 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                   <div className="flex items-center gap-4 text-xs text-slate-300 mt-1">
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-                      {new Date(event.date).toLocaleDateString()}
+                      {new Date(event.startDateTime || event.date).toLocaleDateString()}
                     </span>
                     <span className="flex items-center gap-1 truncate">
                       <MapPin className="w-3.5 h-3.5 text-purple-400" />
-                      {event.location}
+                      {activeLocation?.name || event.location}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Description Preview */}
-              <p className="text-xs text-slate-400 leading-relaxed bg-slate-950/50 p-3 rounded-xl border border-slate-800/80">
-                {event.description || 'Secure your ticket now with real-time atomic reservation.'}
-              </p>
-
-              {/* Ticket Tier Selection */}
-              {event.ticketTypes && event.ticketTypes.length > 0 && (
+              {/* LOCATION SELECTION (If Multiple Locations Exist) */}
+              {locations.length > 1 && (
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-300 block flex items-center justify-between">
-                    <span>Select Ticket Tier</span>
-                    <span className="text-[10px] text-slate-400 font-normal lowercase">(Early Birds expire on deadline date)</span>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-indigo-400" /> Select Venue / Location
                   </label>
                   <div className="grid grid-cols-2 gap-2">
-                    {event.ticketTypes.map((tier) => {
-                      const isExpired = tier.expiryDate && new Date(tier.expiryDate) < new Date();
-                      const isSelected = selectedTier === tier.name;
-
+                    {locations.map((loc) => {
+                      const locId = loc._id?.toString() || loc.name;
+                      const isLocSelected = selectedLocationId === locId;
                       return (
                         <button
-                          key={tier.name}
+                          key={locId}
                           type="button"
-                          disabled={isExpired}
-                          onClick={() => !isExpired && setSelectedTier(tier.name)}
-                          className={`p-3 rounded-xl border text-left transition ${
-                            isExpired
-                              ? 'bg-slate-950/40 border-slate-800 text-slate-600 opacity-60 cursor-not-allowed'
-                              : isSelected
-                              ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-md shadow-indigo-500/10 cursor-pointer'
-                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 cursor-pointer'
+                          onClick={() => setSelectedLocationId(locId)}
+                          className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                            isLocSelected
+                              ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-md shadow-indigo-500/10'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                           }`}
                         >
-                          <div className="flex justify-between items-center">
-                            <div className="text-xs font-bold text-white">{tier.name}</div>
-                            {isExpired && (
-                              <span className="text-[9px] font-extrabold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/30 px-1.5 py-0.5 rounded">
-                                Expired
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-emerald-400 font-semibold mt-0.5">
-                            ${tier.price}
-                            {tier.expiryDate && !isExpired && (
-                              <span className="text-[10px] text-amber-400 font-normal ml-2">
-                                (Ends {new Date(tier.expiryDate).toLocaleDateString()})
-                              </span>
-                            )}
-                          </div>
+                          <div className="text-xs font-bold text-white truncate">{loc.name}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">{loc.startTime || '07:00 PM'}</div>
                         </button>
                       );
                     })}
@@ -286,33 +311,98 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                 </div>
               )}
 
-              {/* Quantity Counter */}
-              <div className="glass-panel p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold text-white block">Ticket Quantity</span>
-                  <span className="text-[11px] text-slate-400">${unitPrice} per ticket • {maxAvailable} left</span>
-                </div>
+              {/* TICKET TIER SELECTION FOR SELECTED LOCATION */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center justify-between">
+                  <span>Ticket Types ({activeLocation?.name || 'Venue'})</span>
+                  <span className="text-[10px] text-slate-400 font-normal">Per-location capacity</span>
+                </label>
 
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    disabled={quantity <= 1}
-                    className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm disabled:opacity-40 cursor-pointer"
-                  >
-                    -
-                  </button>
-                  <span className="text-lg font-extrabold text-white w-6 text-center">{quantity}</span>
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(Math.min(maxAvailable, quantity + 1))}
-                    disabled={quantity >= maxAvailable}
-                    className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm disabled:opacity-40 cursor-pointer"
-                  >
-                    +
-                  </button>
-                </div>
+                {allLocationTiersSoldOut ? (
+                  <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-center text-xs text-rose-300 font-bold">
+                    All tickets for this location are sold out.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {activeTiers.map((tier) => {
+                      const tierId = tier._id?.toString() || tier.name;
+                      const tierAvail = Math.max(0, tier.availableQuantity ?? (tier.totalQuantity - (tier.soldQuantity || 0)));
+                      const isSoldOut = tierAvail <= 0;
+                      const isSelected = selectedTierId === tierId || selectedTierName === tier.name;
+
+                      return (
+                        <button
+                          key={tierId}
+                          type="button"
+                          disabled={isSoldOut}
+                          onClick={() => {
+                            if (!isSoldOut) {
+                              setSelectedTierId(tierId);
+                              setSelectedTierName(tier.name);
+                              setQuantity(1);
+                            }
+                          }}
+                          className={`p-3 rounded-xl border text-left transition ${
+                            isSoldOut
+                              ? 'bg-slate-950/40 border-slate-800 text-slate-600 opacity-60 cursor-not-allowed'
+                              : isSelected
+                              ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-md shadow-indigo-500/10 cursor-pointer'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 cursor-pointer'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-white">{tier.name}</span>
+                            {isSoldOut ? (
+                              <span className="text-[9px] font-extrabold uppercase bg-rose-500/20 text-rose-400 border border-rose-500/40 px-1.5 py-0.5 rounded">
+                                SOLD OUT
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-emerald-400 font-semibold">
+                                Available: {tierAvail}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-emerald-400 font-extrabold mt-1">
+                            ${tier.price} USD
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+
+              {/* QUANTITY COUNTER */}
+              {!allLocationTiersSoldOut && (
+                <div className="glass-panel p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-white block">Ticket Quantity</span>
+                    <span className="text-[11px] text-slate-400">
+                      ${unitPrice} per ticket • {isTierSoldOut ? '0 left (SOLD OUT)' : `${maxAvailable} left`}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                      disabled={isTierSoldOut || quantity <= 1}
+                      className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm disabled:opacity-40 cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <span className="text-lg font-extrabold text-white w-6 text-center">{quantity}</span>
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(Math.min(maxAvailable, quantity + 1))}
+                      disabled={isTierSoldOut || quantity >= maxAvailable}
+                      className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm disabled:opacity-40 cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Price Preview */}
               <div className="flex items-center justify-between p-4 bg-indigo-950/30 border border-indigo-500/30 rounded-2xl text-xs">
@@ -323,9 +413,10 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
               {/* Action Button */}
               <button
                 type="submit"
-                className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-xl text-sm shadow-xl shadow-indigo-600/25 transition duration-200 flex items-center justify-center gap-2 cursor-pointer"
+                disabled={allLocationTiersSoldOut || isTierSoldOut}
+                className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-xl text-sm shadow-xl shadow-indigo-600/25 transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <span>Continue to Checkout</span>
+                <span>{allLocationTiersSoldOut || isTierSoldOut ? 'Sold Out for this selection' : 'Continue to Checkout'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
@@ -396,8 +487,12 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                   <span className="font-semibold text-white truncate max-w-[200px]">{event.title}</span>
                 </div>
                 <div className="flex justify-between text-slate-300">
+                  <span>Venue Location:</span>
+                  <span className="font-semibold text-white">{activeLocation?.name}</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
                   <span>Selected Tier:</span>
-                  <span className="font-semibold text-white">{selectedTier}</span>
+                  <span className="font-semibold text-white">{selectedTierName}</span>
                 </div>
                 <div className="flex justify-between text-slate-300">
                   <span>Quantity:</span>
@@ -567,14 +662,18 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
 
                 <div className="space-y-2 text-xs text-left">
                   <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                    <span className="text-slate-400">Token Ref:</span>
+                    <span className="text-slate-400">Token Ref / Booking ID:</span>
                     <span className="font-mono font-bold text-indigo-300 truncate max-w-[180px]">
-                      {successData.qrCodeString || successData._id}
+                      {successData.qrToken || successData.qrCodeString || successData.bookingId || successData._id}
                     </span>
                   </div>
                   <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
                     <span className="text-slate-400">Event Title:</span>
                     <span className="font-bold text-white truncate max-w-[180px]">{event.title}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                    <span className="text-slate-400">Venue Location:</span>
+                    <span className="font-semibold text-white">{successData.locationName || activeLocation?.name}</span>
                   </div>
                   <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
                     <span className="text-slate-400">Attendee:</span>
@@ -583,7 +682,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                   <div className="flex justify-between">
                     <span className="text-slate-400">Tickets Count:</span>
                     <span className="font-bold text-emerald-400">
-                      {successData.ticketQuantity} Ticket(s) ({successData.ticketType || 'General'})
+                      {successData.ticketQuantity} Ticket(s) ({successData.ticketType || selectedTierName})
                     </span>
                   </div>
                 </div>
@@ -618,3 +717,4 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
 };
 
 export default BookingModal;
+

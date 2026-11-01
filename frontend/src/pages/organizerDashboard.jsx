@@ -145,8 +145,26 @@ const OrganizerDashboard = () => {
     setSubmitting(true);
 
     try {
-      // Financial & capacity calculations
-      const totalCap = formData.ticketTypes.reduce((sum, t) => sum + Number(t.quantity || 0), 0);
+      // Build location-based ticket tiers payload
+      const locationsPayload = formData.schedules.map((s) => ({
+        name: s.location || 'Main Venue',
+        date: s.date,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        ticketTiers: formData.ticketTypes.map((t) => ({
+          name: t.name,
+          price: Number(t.price),
+          totalQuantity: Number(t.quantity),
+          soldQuantity: 0,
+          availableQuantity: Number(t.quantity),
+          expiryDate: t.expiryDate || null,
+        })),
+      }));
+
+      const totalCap = locationsPayload.reduce((locSum, loc) => {
+        return locSum + loc.ticketTiers.reduce((tierSum, t) => tierSum + t.totalQuantity, 0);
+      }, 0);
+
       const minPrice = Math.min(...formData.ticketTypes.map((t) => Number(t.price || 0)));
       const primarySched = formData.schedules[0];
 
@@ -159,6 +177,7 @@ const OrganizerDashboard = () => {
         date: primarySched.date,
         startTime: primarySched.startTime,
         endTime: primarySched.endTime,
+        locations: locationsPayload,
         schedules: formData.schedules,
         ticketPrice: minPrice,
         totalCapacity: totalCap,
@@ -209,7 +228,7 @@ const OrganizerDashboard = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">Organizer Dashboard</h1>
-          <p className="text-slate-400 text-sm">Manage events, track sales, and monitor net revenue.</p>
+          <p className="text-slate-400 text-sm">Manage events, location capacity, ticket tiers, and gate verification.</p>
         </div>
         <button
           onClick={() => setShowModal(true)}
@@ -246,10 +265,10 @@ const OrganizerDashboard = () => {
       {/* Gate Ticket Verifier */}
       <TicketVerifier />
 
-      {/* Events Table */}
+      {/* Events Breakdown Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="p-4 border-b border-slate-800 font-bold text-white flex justify-between items-center">
-          <span>Your Published Events</span>
+          <span>Your Published Events & Location Capacity</span>
           <span className="text-xs text-slate-400">{events.length} Active Events</span>
         </div>
         <div className="overflow-x-auto">
@@ -257,9 +276,9 @@ const OrganizerDashboard = () => {
             <thead className="bg-slate-950 text-xs uppercase text-slate-400 border-b border-slate-800">
               <tr>
                 <th className="px-4 py-3.5">Title</th>
-                <th className="px-4 py-3.5">Category</th>
-                <th className="px-4 py-3.5">Date & Venue</th>
-                <th className="px-4 py-3.5">Price</th>
+                <th className="px-4 py-3.5">Lifecycle Status</th>
+                <th className="px-4 py-3.5">Locations & Venues</th>
+                <th className="px-4 py-3.5">Ticket Tier Breakdown</th>
                 <th className="px-4 py-3.5">Remaining</th>
                 <th className="px-4 py-3.5">Total Capacity</th>
               </tr>
@@ -272,28 +291,74 @@ const OrganizerDashboard = () => {
                   </td>
                 </tr>
               ) : (
-                events.map((evt) => (
-                  <tr key={evt._id} className="hover:bg-slate-800/50 transition">
-                    <td className="px-4 py-3.5 font-bold text-white">{evt.title}</td>
-                    <td className="px-4 py-3.5">
-                      <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
-                        {evt.category || 'General'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-xs">
-                      <div>{new Date(evt.date).toLocaleDateString()}</div>
-                      <div className="text-[11px] text-slate-500">{evt.location}</div>
-                    </td>
-                    <td className="px-4 py-3.5 font-bold text-emerald-400">${evt.ticketPrice}</td>
-                    <td className="px-4 py-3.5 font-semibold text-slate-200">{evt.availableTickets}</td>
-                    <td className="px-4 py-3.5 text-slate-400">{evt.totalCapacity || evt.totalTickets}</td>
-                  </tr>
-                ))
+                events.map((evt) => {
+                  const status = evt.eventStatus || 'UPCOMING';
+                  const locs = evt.locations && evt.locations.length > 0 ? evt.locations : [
+                    {
+                      name: evt.location,
+                      ticketTiers: evt.ticketTypes || [],
+                    }
+                  ];
+
+                  return (
+                    <tr key={evt._id} className="hover:bg-slate-800/50 transition align-top">
+                      <td className="px-4 py-3.5 font-bold text-white">
+                        <div>{evt.title}</div>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 font-normal">
+                          {evt.category || 'General'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border ${
+                            status === 'COMPLETED'
+                              ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                              : status === 'ONGOING'
+                              ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          }`}
+                        >
+                          {status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs space-y-1">
+                        {locs.map((loc, idx) => (
+                          <div key={idx} className="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                            <div className="font-semibold text-white">{loc.name}</div>
+                            <div className="text-[10px] text-slate-400">
+                              {new Date(loc.date || evt.date).toLocaleDateString()} ({loc.startTime || '07:00 PM'})
+                            </div>
+                          </div>
+                        ))}
+                      </td>
+                      <td className="px-4 py-3.5 text-xs space-y-1">
+                        {locs.flatMap((loc) => loc.ticketTiers || []).map((tier, idx) => {
+                          const total = tier.totalQuantity || tier.quantity || 0;
+                          const sold = tier.soldQuantity || 0;
+                          const avail = Math.max(0, tier.availableQuantity ?? (total - sold));
+                          const isSoldOut = avail <= 0;
+
+                          return (
+                            <div key={idx} className="flex items-center justify-between gap-3 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
+                              <span className="font-semibold text-white">{tier.name} (${tier.price})</span>
+                              <span className={isSoldOut ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
+                                {isSoldOut ? 'SOLD OUT' : `${avail} / ${total} left`}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </td>
+                      <td className="px-4 py-3.5 font-bold text-emerald-400">{evt.availableTickets}</td>
+                      <td className="px-4 py-3.5 text-slate-400">{evt.totalCapacity || evt.totalTickets}</td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
+
 
       {/* ==================== CREATE NEW EVENT MODAL (MATCHING SCREENSHOT) ==================== */}
       {showModal && (

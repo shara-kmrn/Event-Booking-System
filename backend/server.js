@@ -2,8 +2,6 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 
-
-// dotenv config එක connectDB import එකට පස්සේ run වුණත් කමක් නැහැ, හැබැයි function එක call කරන්න කලින් අනිවාර්යයෙන්ම තියෙන්න ඕනේ
 dotenv.config();
 
 import connectDB from './config/db.js';
@@ -13,6 +11,8 @@ import bookingRoutes from './routes/bookingRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import ticketRoutes from './routes/ticketRoutes.js';
+
 // Connect Database
 connectDB();
 
@@ -44,8 +44,12 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/tickets', ticketRoutes);
+app.use('/api/organizer', analyticsRoutes);
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-});
+});

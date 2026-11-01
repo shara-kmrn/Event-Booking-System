@@ -61,6 +61,88 @@ export const getOrganizerStats = async (req, res) => {
   }
 };
 
+// @desc    Get bookings for a specific event (Organizer)
+// @route   GET /api/organizer/events/:eventId/bookings
+// @access  Private (Organizer)
+export const getEventBookingsForOrganizer = async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const bookings = await Booking.find({
+      eventId,
+      tenantId: req.user._id,
+    })
+      .populate('customerId', 'name email contactNumber')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(bookings);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get detailed statistics for a specific event (Organizer)
+// @route   GET /api/organizer/events/:eventId/statistics
+// @access  Private (Organizer)
+export const getEventStatsForOrganizer = async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const event = await Event.findById(eventId);
+
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found.' });
+    }
+
+    if (event.tenantId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized.' });
+    }
+
+    const bookings = await Booking.find({
+      eventId: event._id,
+      paymentStatus: { $in: ['paid', 'PAID', 'confirmed', 'CONFIRMED'] },
+    });
+
+    const totalTicketsSold = bookings.reduce((sum, b) => sum + (b.ticketQuantity || 0), 0);
+    const totalRevenue = bookings.reduce((sum, b) => sum + (b.organizerRevenue || 0), 0);
+    const checkedInCount = bookings.filter((b) => b.isCheckedIn || b.ticketStatus === 'USED').length;
+
+    const currentTime = new Date();
+    const status = currentTime < new Date(event.startDateTime)
+      ? 'UPCOMING'
+      : currentTime < new Date(event.endDateTime)
+      ? 'ONGOING'
+      : 'COMPLETED';
+
+    const locationBreakdown = (event.locations || []).map((loc) => ({
+      locationName: loc.name,
+      totalCapacity: loc.ticketTiers.reduce((s, t) => s + t.totalQuantity, 0),
+      ticketsSold: loc.ticketTiers.reduce((s, t) => s + (t.soldQuantity || 0), 0),
+      ticketsAvailable: loc.ticketTiers.reduce((s, t) => s + Math.max(0, t.availableQuantity ?? (t.totalQuantity - (t.soldQuantity || 0))), 0),
+      ticketTiers: loc.ticketTiers.map((t) => ({
+        name: t.name,
+        price: t.price,
+        totalQuantity: t.totalQuantity,
+        soldQuantity: t.soldQuantity || 0,
+        availableQuantity: Math.max(0, t.availableQuantity ?? (t.totalQuantity - (t.soldQuantity || 0))),
+        soldOut: (t.availableQuantity ?? (t.totalQuantity - (t.soldQuantity || 0))) <= 0,
+      })),
+    }));
+
+    res.status(200).json({
+      eventId: event._id,
+      title: event.title,
+      eventStatus: status,
+      totalTickets: event.totalCapacity,
+      ticketsSold: totalTicketsSold,
+      availableTickets: event.availableTickets,
+      revenue: totalRevenue,
+      checkedInTickets: checkedInCount,
+      locations: locationBreakdown,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // @desc    Get Platform-wide stats for Super Admin
 // @route   GET /api/analytics/admin
 // @access  Private (Super Admin only)
@@ -97,4 +179,4 @@ export const getAdminStats = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-};
+};

@@ -2,6 +2,8 @@ import express from 'express';
 import {
   createEvent,
   getAllEvents,
+  getUpcomingEvents,
+  getEventAvailability,
   getOrganizerEvents,
   getEventById,
   deleteEvent,
@@ -18,8 +20,10 @@ router.post('/', protect, authorize('organizer'), createEvent);
 router.delete('/:id', protect, authorize('organizer'), deleteEvent);
 
 // Public Routes
+router.get('/upcoming', getUpcomingEvents);
 router.get('/categories', getCategoriesPublic);
 router.get('/', getAllEvents);
+router.get('/:eventId/availability', getEventAvailability);
 router.get('/:id', getEventById);
 
-export default router;
+export default router;
