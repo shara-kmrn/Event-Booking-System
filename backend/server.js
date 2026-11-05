@@ -29,8 +29,26 @@ if (!process.env.SMTP_HOST || !process.env.FROM_EMAIL) {
   console.warn('SMTP is not configured. Email-dependent authentication will return HTTP 503 until configured.');
 }
 await connectDB();
-try { await Promise.all([Booking.init(), StripeWebhookEvent.init()]); }
-catch { console.error('Booking indexes could not be initialized. Startup stopped safely.'); process.exit(1); }
+try {
+  await Promise.all([Booking.init(), StripeWebhookEvent.init()]);
+  // init() can skip index creation when autoIndex is disabled. Explicitly
+  // ensure critical indexes without dropping or synchronizing existing indexes.
+  await Promise.all([Booking.createIndexes(), StripeWebhookEvent.createIndexes()]);
+  console.log('Critical booking indexes initialized successfully.');
+} catch (error) {
+  console.error('Booking index initialization failed. Startup stopped safely.', {
+    name: error.name,
+    code: error.code,
+    codeName: error.codeName,
+    message: error.message,
+    keyPattern: error.keyPattern,
+    keyValue: error.keyValue,
+  });
+  if (error.code === 11000) {
+    console.error('Existing data violates a required unique index. Review the conflicting records before an explicitly approved migration; no records or indexes were removed.');
+  }
+  process.exit(1);
+}
 
 const app = express();
 app.disable('x-powered-by');
