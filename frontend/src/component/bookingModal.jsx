@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+import { bookingAttempt, canDisplayTicket, validCheckoutUrl } from '../api/bookingState.js';
 import API from '../api/axios';
 import {
   X,
@@ -9,16 +11,12 @@ import {
   CreditCard,
   Lock,
   CheckCircle2,
-  Sparkles,
   ShieldCheck,
-  Zap,
   ArrowRight,
   ArrowLeft,
   Calendar,
   MapPin,
-  QrCode,
   Check,
-  AlertCircle,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -65,20 +63,12 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
   const [selectedTierId, setSelectedTierId] = useState(firstAvailTier?._id?.toString() || firstAvailTier?.name || 'General');
   const [selectedTierName, setSelectedTierName] = useState(firstAvailTier?.name || 'General');
 
-  // Sync tier selection when location changes
-  useEffect(() => {
-    if (activeTiers && activeTiers.length > 0) {
-      const avail = activeTiers.find((t) => (t.availableQuantity ?? (t.totalQuantity - (t.soldQuantity || 0))) > 0) || activeTiers[0];
-      setSelectedTierId(avail?._id?.toString() || avail?.name || 'General');
-      setSelectedTierName(avail?.name || 'General');
-    }
-  }, [selectedLocationId]);
-
   const activeTierObj = activeTiers.find(
     (t) => t._id?.toString() === selectedTierId || t.name === selectedTierId || t.name === selectedTierName
   ) || activeTiers[0];
 
-  const maxAvailable = Math.max(0, activeTierObj?.availableQuantity ?? (activeTierObj?.totalQuantity - (activeTierObj?.soldQuantity || 0)) ?? event.availableTickets ?? 0);
+  const maxAvailable = Math.max(0, activeTierObj?.availableQuantity ??
+    (activeTierObj ? activeTierObj.totalQuantity - (activeTierObj.soldQuantity || 0) : event.availableTickets ?? 0));
   const isTierSoldOut = maxAvailable <= 0;
 
   // Check if ALL tiers in selected location are sold out
@@ -91,10 +81,15 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
   const [customerEmail, setCustomerEmail] = useState(user?.email || '');
   const [customerPhone, setCustomerPhone] = useState(user?.contactNumber || '');
 
-  // Card details mock state
-  const [cardNumber, setCardNumber] = useState('4242 •••• •••• 4242');
-  const [cardExpiry, setCardExpiry] = useState('12/28');
-  const [cardCvc, setCardCvc] = useState('123');
+  const attemptRef = useRef(null);
+  const submittingRef = useRef(false);
+  const handleLocationSelect = (location) => {
+    const available = location.ticketTiers.find((tier) => tier.availableQuantity > 0) || location.ticketTiers[0];
+    setSelectedLocationId(location._id.toString());
+    setSelectedTierId(available?._id?.toString() || available?.name || '');
+    setSelectedTierName(available?.name || '');
+    setQuantity(1);
+  };
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -109,7 +104,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
 
   const handleStep1Next = (e) => {
     e.preventDefault();
-    if (allLocationTiersSoldOut || isTierSoldOut) {
+    if (allLocationTiersSoldOut || isTierSoldOut || quantity > maxAvailable || quantity < 1) {
       setError('Selected ticket tier is sold out. Please select another tier or location.');
       return;
     }
@@ -129,47 +124,38 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
 
   const handlePaymentSubmit = async (e) => {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
     setError('');
-
     try {
-      // 1. Create Payment Intent (Stripe Sandbox)
-      let intentId = `pi_demo_${Date.now()}`;
-      try {
-        const { data: intentRes } = await API.post('/payment/create-payment-intent', {
-          eventId: event._id,
-          locationId: activeLocation._id || selectedLocationId,
-          ticketTierId: activeTierObj._id || selectedTierId,
-          ticketQuantity: quantity,
-          ticketType: selectedTierName,
-        });
-        if (intentRes.paymentIntentId) {
-          intentId = intentRes.paymentIntentId;
-        }
-      } catch (pErr) {
-        console.warn('Payment Intent creation fallback', pErr);
-      }
-
-      // 2. Process Atomic Booking
-      const { data: bookingRes } = await API.post('/bookings', {
-        eventId: event._id,
-        locationId: activeLocation._id || selectedLocationId,
-        ticketTierId: activeTierObj._id || selectedTierId,
-        ticketQuantity: quantity,
-        ticketType: selectedTierName,
-        customerName,
-        customerEmail,
-        customerPhone,
-        paymentMethod: 'Stripe Credit Card',
-        stripePaymentIntentId: intentId,
+      if (user?.role !== 'customer') throw new Error('Sign in with a Customer account to book tickets.');
+      const payload = {
+        eventId: event._id, locationId: activeLocation._id, ticketTierId: activeTierObj._id,
+        ticketQuantity: quantity, customerName, customerEmail, customerPhone,
+      };
+      attemptRef.current = bookingAttempt(attemptRef.current, payload);
+      const { data } = await API.post('/bookings', payload, {
+        headers: { 'Idempotency-Key': attemptRef.current.key },
       });
-
-      setSuccessData(bookingRes.booking);
-      if (onBookingSuccess) onBookingSuccess(bookingRes.booking);
-      setStep(4); // Move to Confirmation Step
+      let booking = data.booking;
+      if (!canDisplayTicket(booking)) {
+        const response = await API.post('/payment/create-checkout-session', { bookingId: booking._id });
+        booking = response.data.booking;
+        if (validCheckoutUrl(response.data.url)) {
+          window.location.assign(response.data.url);
+          return;
+        }
+      }
+      if (!canDisplayTicket(booking)) throw new Error('Payment is not confirmed. Check My Bookings before trying again.');
+      setSuccessData(booking);
+      onBookingSuccess?.(booking);
+      setStep(4);
     } catch (err) {
-      setError(err.response?.data?.message || 'Payment or reservation failed. Please try again.');
+      if (err.response?.data?.code === 'RESERVATION_EXPIRED') attemptRef.current = null;
+      setError(err.response?.data?.message || err.message || 'Unable to start payment. Please try again.');
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   };
@@ -182,32 +168,32 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay animate-in fade-in duration-200">
+      <div className="relative w-full max-w-xl bg-card border border-border rounded-3xl overflow-hidden max-h-[92vh] flex flex-col">
         
         {/* Modal Header */}
-        <div className="p-5 border-b border-slate-800/80 bg-slate-950/80 flex items-center justify-between">
+        <div className="p-5 border-b border-border bg-card flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 p-0.5 shadow-lg shadow-indigo-500/20">
-              <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center text-indigo-400">
+            <div className="w-10 h-10 rounded-xl bg-primary p-0.5">
+              <div className="w-full h-full bg-card rounded-[10px] flex items-center justify-center text-accent">
                 <Ticket className="w-5 h-5" />
               </div>
             </div>
             <div>
-              <h3 className="text-base sm:text-lg font-bold text-white leading-snug line-clamp-1">{event.title}</h3>
-              <p className="text-xs text-slate-400">Atomic Seat Reservation</p>
+              <h3 className="text-base sm:text-lg font-bold text-heading leading-snug line-clamp-1">{event.title}</h3>
+              <p className="text-xs text-body">Atomic Seat Reservation</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer"
+            className="p-2 text-body hover:text-heading rounded-xl hover:bg-secondary transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Step Progress Bar Header */}
-        <div className="px-6 py-3 bg-slate-950/50 border-b border-slate-800/60">
+        <div className="px-6 py-3 bg-card border-b border-border">
           <div className="flex items-center justify-between relative">
             {stepsList.map((s, idx) => {
               const isCompleted = step > s.num;
@@ -217,17 +203,17 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                   <div
                     className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
                       isCompleted
-                        ? 'bg-emerald-500 text-slate-950 font-extrabold shadow-md shadow-emerald-500/30'
+                        ? 'bg-primary text-on-primary font-extrabold  '
                         : isActive
-                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40 border border-indigo-400'
-                        : 'bg-slate-800 text-slate-500 border border-slate-700'
+                        ? 'bg-primary text-on-primary   border border-primary-border'
+                        : 'bg-secondary text-subtle border border-border'
                     }`}
                   >
                     {isCompleted ? <Check className="w-4 h-4" /> : s.num}
                   </div>
                   <span
                     className={`text-xs font-semibold hidden sm:inline ${
-                      isActive ? 'text-white' : isCompleted ? 'text-emerald-400' : 'text-slate-500'
+                      isActive ? 'text-heading' : isCompleted ? 'text-accent' : 'text-subtle'
                     }`}
                   >
                     {s.label}
@@ -235,7 +221,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                   {idx < stepsList.length - 1 && (
                     <div
                       className={`h-0.5 w-6 sm:w-10 transition-colors ${
-                        step > s.num ? 'bg-emerald-500' : 'bg-slate-800'
+                        step > s.num ? 'bg-primary' : 'bg-secondary'
                       }`}
                     />
                   )}
@@ -246,10 +232,10 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
         </div>
 
         {/* Modal Body (Scrollable) */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-100">
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-heading">
           
           {error && (
-            <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl text-xs flex items-center justify-between animate-in fade-in">
+            <div className="p-3.5 bg-error-soft border border-error-border text-danger rounded-xl text-xs flex items-center justify-between animate-in fade-in">
               <span>{error}</span>
               <button type="button" onClick={() => setError('')}>✕</button>
             </div>
@@ -260,21 +246,21 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
             <form onSubmit={handleStep1Next} className="space-y-5 animate-in fade-in duration-300">
               
               {/* Event Cover Banner & Info */}
-              <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-slate-950">
+              <div className="relative rounded-2xl overflow-hidden border border-border bg-card">
                 <img src={coverImage} alt={event.title} className="w-full h-32 object-cover opacity-70" />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent" />
-                <div className="absolute bottom-3 left-4 right-4">
-                  <span className="text-[10px] font-bold uppercase tracking-wider bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 px-2.5 py-0.5 rounded-full mb-1 inline-block">
+
+                <div className="relative p-4 bg-card">
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-primary-soft text-accent border border-primary-border px-2.5 py-0.5 rounded-full mb-1 inline-block">
                     {event.category || 'General'}
                   </span>
-                  <h4 className="text-base font-bold text-white truncate">{event.title}</h4>
-                  <div className="flex items-center gap-4 text-xs text-slate-300 mt-1">
+                  <h4 className="text-base font-bold text-heading truncate">{event.title}</h4>
+                  <div className="flex items-center gap-4 text-xs text-body mt-1">
                     <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-                      {new Date(event.startDateTime || event.date).toLocaleDateString()}
+                      <Calendar className="w-3.5 h-3.5 text-accent" />
+                      {new Date(activeLocation?.startDateTime || activeLocation?.date || event.startDateTime || event.date).toLocaleDateString()}
                     </span>
                     <span className="flex items-center gap-1 truncate">
-                      <MapPin className="w-3.5 h-3.5 text-purple-400" />
+                      <MapPin className="w-3.5 h-3.5 text-accent" />
                       {activeLocation?.name || event.location}
                     </span>
                   </div>
@@ -284,8 +270,8 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
               {/* LOCATION SELECTION (If Multiple Locations Exist) */}
               {locations.length > 1 && (
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-indigo-400" /> Select Venue / Location
+                  <label className="text-xs font-bold uppercase tracking-wider text-body flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-accent" /> Select Venue / Location
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {locations.map((loc) => {
@@ -295,15 +281,15 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                         <button
                           key={locId}
                           type="button"
-                          onClick={() => setSelectedLocationId(locId)}
+                          onClick={() => handleLocationSelect(loc)}
                           className={`p-3 rounded-xl border text-left transition cursor-pointer ${
                             isLocSelected
-                              ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-md shadow-indigo-500/10'
-                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                              ? 'bg-primary-soft border-primary-border text-heading  '
+                              : 'bg-card border-border text-body hover:border-border'
                           }`}
                         >
-                          <div className="text-xs font-bold text-white truncate">{loc.name}</div>
-                          <div className="text-[10px] text-slate-400 mt-0.5">{loc.startTime || '07:00 PM'}</div>
+                          <div className="text-xs font-bold text-heading truncate">{loc.name}</div>
+                          <div className="text-[10px] text-body mt-0.5">{loc.startTime || '07:00 PM'}</div>
                         </button>
                       );
                     })}
@@ -313,13 +299,13 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
 
               {/* TICKET TIER SELECTION FOR SELECTED LOCATION */}
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center justify-between">
+                <label className="text-xs font-bold uppercase tracking-wider text-body flex items-center justify-between">
                   <span>Ticket Types ({activeLocation?.name || 'Venue'})</span>
-                  <span className="text-[10px] text-slate-400 font-normal">Per-location capacity</span>
+                  <span className="text-[10px] text-body font-normal">Per-location capacity</span>
                 </label>
 
                 {allLocationTiersSoldOut ? (
-                  <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-center text-xs text-rose-300 font-bold">
+                  <div className="p-4 bg-error-soft border border-error-border rounded-xl text-center text-xs text-danger font-bold">
                     All tickets for this location are sold out.
                   </div>
                 ) : (
@@ -344,25 +330,25 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                           }}
                           className={`p-3 rounded-xl border text-left transition ${
                             isSoldOut
-                              ? 'bg-slate-950/40 border-slate-800 text-slate-600 opacity-60 cursor-not-allowed'
+                              ? 'bg-card border-border text-subtle opacity-60 cursor-not-allowed'
                               : isSelected
-                              ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-md shadow-indigo-500/10 cursor-pointer'
-                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 cursor-pointer'
+                              ? 'bg-primary-soft border-primary-border text-heading   cursor-pointer'
+                              : 'bg-card border-border text-body hover:border-border cursor-pointer'
                           }`}
                         >
                           <div className="flex justify-between items-center">
-                            <span className="text-xs font-bold text-white">{tier.name}</span>
+                            <span className="text-xs font-bold text-heading">{tier.name}</span>
                             {isSoldOut ? (
-                              <span className="text-[9px] font-extrabold uppercase bg-rose-500/20 text-rose-400 border border-rose-500/40 px-1.5 py-0.5 rounded">
+                              <span className="text-[9px] font-extrabold uppercase bg-error-soft text-danger border border-error-border px-1.5 py-0.5 rounded">
                                 SOLD OUT
                               </span>
                             ) : (
-                              <span className="text-[10px] text-emerald-400 font-semibold">
+                              <span className="text-[10px] text-accent font-semibold">
                                 Available: {tierAvail}
                               </span>
                             )}
                           </div>
-                          <div className="text-xs text-emerald-400 font-extrabold mt-1">
+                          <div className="text-xs text-accent font-extrabold mt-1">
                             ${tier.price} USD
                           </div>
                         </button>
@@ -374,10 +360,10 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
 
               {/* QUANTITY COUNTER */}
               {!allLocationTiersSoldOut && (
-                <div className="glass-panel p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                <div className="glass-panel p-4 rounded-2xl border border-border flex items-center justify-between">
                   <div>
-                    <span className="text-xs font-bold text-white block">Ticket Quantity</span>
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-xs font-bold text-heading block">Ticket Quantity</span>
+                    <span className="text-[11px] text-body">
                       ${unitPrice} per ticket • {isTierSoldOut ? '0 left (SOLD OUT)' : `${maxAvailable} left`}
                     </span>
                   </div>
@@ -387,16 +373,16 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                       type="button"
                       onClick={() => setQuantity(Math.max(1, quantity - 1))}
                       disabled={isTierSoldOut || quantity <= 1}
-                      className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm disabled:opacity-40 cursor-pointer"
+                      className="w-9 h-9 rounded-xl bg-secondary hover:bg-secondary text-heading font-bold text-sm disabled:opacity-40 cursor-pointer"
                     >
                       -
                     </button>
-                    <span className="text-lg font-extrabold text-white w-6 text-center">{quantity}</span>
+                    <span className="text-lg font-extrabold text-heading w-6 text-center">{quantity}</span>
                     <button
                       type="button"
                       onClick={() => setQuantity(Math.min(maxAvailable, quantity + 1))}
                       disabled={isTierSoldOut || quantity >= maxAvailable}
-                      className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm disabled:opacity-40 cursor-pointer"
+                      className="w-9 h-9 rounded-xl bg-secondary hover:bg-secondary text-heading font-bold text-sm disabled:opacity-40 cursor-pointer"
                     >
                       +
                     </button>
@@ -405,16 +391,16 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
               )}
 
               {/* Price Preview */}
-              <div className="flex items-center justify-between p-4 bg-indigo-950/30 border border-indigo-500/30 rounded-2xl text-xs">
-                <span className="text-indigo-300 font-semibold">Subtotal Preview ({quantity} Tickets):</span>
-                <span className="text-base font-extrabold text-emerald-400">${subtotal.toFixed(2)} USD</span>
+              <div className="flex items-center justify-between p-4 bg-primary-soft border border-primary-border rounded-2xl text-xs">
+                <span className="text-accent font-semibold">Subtotal Preview ({quantity} Tickets):</span>
+                <span className="text-base font-extrabold text-accent">${subtotal.toFixed(2)} USD</span>
               </div>
 
               {/* Action Button */}
               <button
                 type="submit"
                 disabled={allLocationTiersSoldOut || isTierSoldOut}
-                className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-xl text-sm shadow-xl shadow-indigo-600/25 transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full py-3.5 bg-primary text-on-primary font-bold rounded-xl text-sm transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <span>{allLocationTiersSoldOut || isTierSoldOut ? 'Sold Out for this selection' : 'Continue to Checkout'}</span>
                 <ArrowRight className="w-4 h-4" />
@@ -425,52 +411,52 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
           {/* ==================== STEP 2: CHECKOUT / CUSTOMER DETAILS ==================== */}
           {step === 2 && (
             <form onSubmit={handleStep2Next} className="space-y-5 animate-in fade-in duration-300">
-              <div className="glass-panel p-4 rounded-2xl border border-slate-800 space-y-4">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                  <User className="w-4 h-4 text-indigo-400" /> Customer Information
+              <div className="glass-panel p-4 rounded-2xl border border-border space-y-4">
+                <label className="text-xs font-bold uppercase tracking-wider text-body flex items-center gap-2">
+                  <User className="w-4 h-4 text-accent" /> Customer Information
                 </label>
 
                 <div>
-                  <label className="text-[11px] text-slate-400 block mb-1 font-medium">Full Name</label>
+                  <label className="text-[11px] text-body block mb-1 font-medium">Full Name</label>
                   <div className="relative">
-                    <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                    <User className="w-4 h-4 text-subtle absolute left-3 top-3" />
                     <input
                       type="text"
                       required
                       placeholder="John Doe"
                       value={customerName}
                       onChange={(e) => setCustomerName(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-card border border-border rounded-xl pl-9 pr-3 py-2.5 text-xs text-heading focus:outline-none focus:border-primary-border"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] text-slate-400 block mb-1 font-medium">Email Address</label>
+                    <label className="text-[11px] text-body block mb-1 font-medium">Email Address</label>
                     <div className="relative">
-                      <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <Mail className="w-4 h-4 text-subtle absolute left-3 top-3" />
                       <input
                         type="email"
                         required
                         placeholder="john@example.com"
                         value={customerEmail}
                         onChange={(e) => setCustomerEmail(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                        className="w-full bg-card border border-border rounded-xl pl-9 pr-3 py-2.5 text-xs text-heading focus:outline-none focus:border-primary-border"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-[11px] text-slate-400 block mb-1 font-medium">Phone Number</label>
+                    <label className="text-[11px] text-body block mb-1 font-medium">Phone Number</label>
                     <div className="relative">
-                      <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                      <Phone className="w-4 h-4 text-subtle absolute left-3 top-3" />
                       <input
                         type="tel"
                         placeholder="+94 7X XXX XXXX"
                         value={customerPhone}
                         onChange={(e) => setCustomerPhone(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                        className="w-full bg-card border border-border rounded-xl pl-9 pr-3 py-2.5 text-xs text-heading focus:outline-none focus:border-primary-border"
                       />
                     </div>
                   </div>
@@ -478,25 +464,25 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
               </div>
 
               {/* Order Summary Box */}
-              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-2 text-xs">
-                <span className="font-bold text-white uppercase text-[10px] tracking-wider block mb-1 text-slate-400">
+              <div className="bg-card border border-border p-4 rounded-2xl space-y-2 text-xs">
+                <span className="font-bold text-heading uppercase text-[10px] tracking-wider block mb-1 text-body">
                   Order Summary
                 </span>
-                <div className="flex justify-between text-slate-300">
+                <div className="flex justify-between text-body">
                   <span>Event:</span>
-                  <span className="font-semibold text-white truncate max-w-[200px]">{event.title}</span>
+                  <span className="font-semibold text-heading truncate max-w-[200px]">{event.title}</span>
                 </div>
-                <div className="flex justify-between text-slate-300">
+                <div className="flex justify-between text-body">
                   <span>Venue Location:</span>
-                  <span className="font-semibold text-white">{activeLocation?.name}</span>
+                  <span className="font-semibold text-heading">{activeLocation?.name}</span>
                 </div>
-                <div className="flex justify-between text-slate-300">
+                <div className="flex justify-between text-body">
                   <span>Selected Tier:</span>
-                  <span className="font-semibold text-white">{selectedTierName}</span>
+                  <span className="font-semibold text-heading">{selectedTierName}</span>
                 </div>
-                <div className="flex justify-between text-slate-300">
+                <div className="flex justify-between text-body">
                   <span>Quantity:</span>
-                  <span className="font-semibold text-white">{quantity} Ticket(s)</span>
+                  <span className="font-semibold text-heading">{quantity} Ticket(s)</span>
                 </div>
               </div>
 
@@ -505,13 +491,13 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                 <button
                   type="button"
                   onClick={() => setStep(1)}
-                  className="px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5"
+                  className="px-5 py-3 bg-secondary hover:bg-secondary text-body font-bold rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5"
                 >
                   <ArrowLeft className="w-4 h-4" /> Back
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-xl text-xs shadow-xl shadow-indigo-600/25 transition cursor-pointer flex items-center justify-center gap-2"
+                  className="flex-1 py-3 bg-primary text-on-primary font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2"
                 >
                   <span>Proceed to Payment</span>
                   <ArrowRight className="w-4 h-4" />
@@ -525,77 +511,35 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
             <form onSubmit={handlePaymentSubmit} className="space-y-5 animate-in fade-in duration-300">
               
               {/* Financial Calculation Summary */}
-              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-2.5 text-xs">
-                <div className="flex justify-between text-slate-400">
+              <div className="bg-card border border-border p-4 rounded-2xl space-y-2.5 text-xs">
+                <div className="flex justify-between text-body">
                   <span>Tickets Subtotal ({quantity}x ${unitPrice}):</span>
-                  <span className="text-white font-semibold">${subtotal.toFixed(2)} USD</span>
+                  <span className="text-heading font-semibold">${subtotal.toFixed(2)} USD</span>
                 </div>
-                <div className="flex justify-between text-slate-400">
+                <div className="flex justify-between text-body">
                   <span>Platform Fee (5% Service):</span>
-                  <span className="text-white font-semibold">${platformFee.toFixed(2)} USD</span>
+                  <span className="text-heading font-semibold">${platformFee.toFixed(2)} USD</span>
                 </div>
-                <div className="flex justify-between text-sm font-extrabold text-white border-t border-slate-800/80 pt-2">
+                <div className="flex justify-between text-sm font-extrabold text-heading border-t border-border pt-2">
                   <span>Total Amount Due:</span>
-                  <span className="text-emerald-400">${grandTotal.toFixed(2)} USD</span>
+                  <span className="text-accent">${grandTotal.toFixed(2)} USD</span>
                 </div>
               </div>
 
-              {/* Card Inputs */}
-              <div className="glass-panel p-4 rounded-2xl border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-emerald-400" /> Stripe Card Checkout
-                  </label>
-                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold">
-                    Sandbox Secured
-                  </span>
-                </div>
-
-                <div>
-                  <label className="text-[11px] text-slate-400 block mb-1 font-medium">Card Number</label>
-                  <div className="relative">
-                    <CreditCard className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      required
-                      value={cardNumber}
-                      onChange={(e) => setCardNumber(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1 font-medium">Expiry Date</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="MM/YY"
-                      value={cardExpiry}
-                      onChange={(e) => setCardExpiry(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1 font-medium">CVC / CVV</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="123"
-                      maxLength="4"
-                      value={cardCvc}
-                      onChange={(e) => setCardCvc(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
+              <div className="glass-panel p-4 rounded-2xl border border-border space-y-3">
+                <p className="text-sm font-bold text-heading flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-accent" /> Secure Stripe Checkout
+                </p>
+                <p className="text-xs text-body">
+                  Continue to Stripe to enter payment details. Your booking becomes confirmed only after the server verifies payment.
+                  The backend validates the final price and reservation deadline.
+                </p>
               </div>
 
               {/* Security Badge */}
-              <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-500">
-                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Protected by Atomic Concurrency Lock (Zero Double-Booking Guarantee)</span>
+              <div className="flex items-center justify-center gap-1.5 text-[11px] text-subtle">
+                <ShieldCheck className="w-3.5 h-3.5 text-accent" />
+                <span>Inventory reserved by the backend; confirmation follows verified payment</span>
               </div>
 
               {/* Action Buttons */}
@@ -604,24 +548,24 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                   type="button"
                   onClick={() => setStep(2)}
                   disabled={loading}
-                  className="px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-5 py-3.5 bg-secondary hover:bg-secondary text-body font-bold rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <ArrowLeft className="w-4 h-4" /> Back
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex-1 py-3.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-emerald-500 hover:from-indigo-500 hover:to-emerald-400 text-white font-bold rounded-xl text-xs shadow-xl shadow-indigo-600/25 transition duration-300 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  className="flex-1 py-3.5 bg-primary text-on-primary font-bold rounded-xl text-xs transition duration-300 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {loading ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>Locking Seat & Processing Payment...</span>
+                      <div className="w-4 h-4 border-2 border-border border-t-transparent rounded-full animate-spin" />
+                      <span>Reserving tickets and opening Stripe...</span>
                     </>
                   ) : (
                     <>
-                      <Lock className="w-4 h-4 text-emerald-300" />
-                      <span>Pay ${grandTotal.toFixed(2)} USD Now</span>
+                      <Lock className="w-4 h-4 text-accent" />
+                      <span>Continue to Stripe (${grandTotal.toFixed(2)} USD)</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
@@ -631,57 +575,57 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
           )}
 
           {/* ==================== STEP 4: CONFIRMATION (QR TICKET & MY BOOKINGS) ==================== */}
-          {step === 4 && successData && (
+          {step === 4 && canDisplayTicket(successData) && (
             <div className="text-center py-6 space-y-6 animate-in zoom-in-95 duration-300">
               
               {/* Animated Success Badge */}
-              <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full flex items-center justify-center mx-auto shadow-xl shadow-emerald-500/20">
-                <CheckCircle2 className="w-10 h-10 animate-bounce" />
+              <div className="w-16 h-16 bg-primary-soft border border-primary-border text-accent rounded-full flex items-center justify-center mx-auto">
+                <CheckCircle2 className="w-10 h-10" />
               </div>
 
               <div>
-                <h4 className="text-2xl font-black text-white">Booking & Payment Confirmed!</h4>
-                <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                <h4 className="text-2xl font-black text-heading">Booking & Payment Confirmed!</h4>
+                <p className="text-xs text-body mt-1 max-w-md mx-auto">
                   Your seat has been atomically locked. Here is your unforgeable gate check-in pass.
                 </p>
               </div>
 
               {/* Digital QR Pass Preview Card */}
-              <div className="glass-panel border border-indigo-500/30 rounded-3xl p-6 max-w-md mx-auto bg-gradient-to-b from-indigo-950/40 via-slate-950 to-slate-950 shadow-2xl relative">
-                <div className="flex justify-between items-center border-b border-slate-800 pb-3 mb-4">
-                  <span className="text-xs font-extrabold uppercase tracking-widest text-indigo-400">QR Gate Pass</span>
-                  <span className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+              <div className="glass-panel border border-primary-border rounded-3xl p-6 max-w-md mx-auto bg-card relative">
+                <div className="flex justify-between items-center border-b border-border pb-3 mb-4">
+                  <span className="text-xs font-extrabold uppercase tracking-widest text-accent">QR Gate Pass</span>
+                  <span className="text-[11px] text-accent font-bold bg-primary-soft border border-primary-border px-2.5 py-0.5 rounded-full">
                     PAID & VERIFIED
                   </span>
                 </div>
 
                 {/* QR Code Icon Graphic */}
-                <div className="w-32 h-32 bg-white rounded-2xl p-3 mx-auto mb-4 flex items-center justify-center shadow-lg">
-                  <QrCode className="w-full h-full text-slate-950" />
+                <div className="w-32 h-32 bg-qr-paper rounded-2xl p-3 mx-auto mb-4 flex items-center justify-center">
+                  <QRCodeSVG value={successData.qrToken} size={104} level="H" />
                 </div>
 
                 <div className="space-y-2 text-xs text-left">
-                  <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                    <span className="text-slate-400">Token Ref / Booking ID:</span>
-                    <span className="font-mono font-bold text-indigo-300 truncate max-w-[180px]">
-                      {successData.qrToken || successData.qrCodeString || successData.bookingId || successData._id}
+                  <div className="flex justify-between border-b border-border pb-1.5">
+                    <span className="text-body">Token Ref / Booking ID:</span>
+                    <span className="font-mono font-bold text-accent truncate max-w-[180px]">
+                      {successData.qrToken}
                     </span>
                   </div>
-                  <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                    <span className="text-slate-400">Event Title:</span>
-                    <span className="font-bold text-white truncate max-w-[180px]">{event.title}</span>
+                  <div className="flex justify-between border-b border-border pb-1.5">
+                    <span className="text-body">Event Title:</span>
+                    <span className="font-bold text-heading truncate max-w-[180px]">{event.title}</span>
                   </div>
-                  <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                    <span className="text-slate-400">Venue Location:</span>
-                    <span className="font-semibold text-white">{successData.locationName || activeLocation?.name}</span>
+                  <div className="flex justify-between border-b border-border pb-1.5">
+                    <span className="text-body">Venue Location:</span>
+                    <span className="font-semibold text-heading">{successData.locationName || activeLocation?.name}</span>
                   </div>
-                  <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                    <span className="text-slate-400">Attendee:</span>
-                    <span className="font-semibold text-white">{customerName || user?.name}</span>
+                  <div className="flex justify-between border-b border-border pb-1.5">
+                    <span className="text-body">Attendee:</span>
+                    <span className="font-semibold text-heading">{customerName || user?.name}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Tickets Count:</span>
-                    <span className="font-bold text-emerald-400">
+                    <span className="text-body">Tickets Count:</span>
+                    <span className="font-bold text-accent">
                       {successData.ticketQuantity} Ticket(s) ({successData.ticketType || selectedTierName})
                     </span>
                   </div>
@@ -695,13 +639,13 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                     onClose();
                     navigate('/my-tickets');
                   }}
-                  className="w-full sm:w-auto flex-1 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-xl text-xs hover:shadow-lg shadow-indigo-500/25 transition cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto flex-1 px-6 py-3.5 bg-primary text-on-primary font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-2"
                 >
                   <Ticket className="w-4 h-4" /> Go to My Bookings
                 </button>
                 <button
                   onClick={onClose}
-                  className="w-full sm:w-auto px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition cursor-pointer"
+                  className="w-full sm:w-auto px-6 py-3.5 bg-secondary hover:bg-secondary text-body font-bold rounded-xl text-xs transition cursor-pointer"
                 >
                   Back to Home
                 </button>

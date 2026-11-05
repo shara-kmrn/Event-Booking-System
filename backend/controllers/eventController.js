@@ -1,12 +1,18 @@
+import { manageEvent } from '../services/eventManagement.js';
+import { bookingErrorResponse } from '../config/bookingSecurity.js';
+import { pageQuery, literalSearch, text } from '../utils/phase3Validation.js';
 import Event from '../models/event.js';
 import Category from '../models/category.js';
-import { parseDateTime, calculateLifecycleStatus } from '../utils/dateUtils.js';
+import { parseDateTime, parseInstant, calculateLifecycleStatus } from '../utils/dateUtils.js';
 
 // Helper to format event object with dynamic lifecycle status
 const formatEventWithStatus = (eventDoc, currentTime = new Date()) => {
   const event = eventDoc.toObject ? eventDoc.toObject() : { ...eventDoc };
-  const status = calculateLifecycleStatus(event.startDateTime, event.endDateTime, currentTime);
-  const bookingAllowed = currentTime < new Date(event.startDateTime);
+  const status = event.isCancelled || event.status === 'cancelled' ? 'CANCELLED' : calculateLifecycleStatus(event.startDateTime, event.endDateTime, currentTime);
+  delete event.reservationJournal;
+  const bookingAllowed = event.status === 'published' && event.isPublished && event.approvalStatus === 'approved' &&
+    event.isActive !== false && !event.isCancelled && !event.cancelledAt && event.availableTickets > 0 &&
+    currentTime < new Date(event.startDateTime) && (!event.bookingClosesAt || currentTime < new Date(event.bookingClosesAt));
 
   // Normalize locations array for frontend if empty
   let locations = event.locations && event.locations.length > 0 ? event.locations : [];
@@ -50,6 +56,7 @@ const formatEventWithStatus = (eventDoc, currentTime = new Date()) => {
     ...event,
     eventStatus: status,
     bookingAllowed,
+    supportsLocationEditing: Boolean(event.locations?.length),
     locations,
   };
 };
@@ -78,9 +85,12 @@ export const createEvent = async (req, res) => {
       ticketTypes,
       contactEmail,
       contactPhone,
+      bookingClosesAt,
       status = 'published',
     } = req.body;
 
+    text(title, 'title', 200); text(description, 'description', 20000);
+    if (!['draft','published'].includes(status)) return res.status(400).json({ message: 'Invalid event status.' });
     // Multi-tenant Subscription Limit Check (Free tier = max 2 events)
     if (req.user.subscriptionPlan === 'free') {
       const eventCount = await Event.countDocuments({ tenantId: req.user._id });
@@ -92,12 +102,12 @@ export const createEvent = async (req, res) => {
     }
 
     const primaryDate = date ? new Date(date) : new Date();
-    const primaryStartDT = reqStartDateTime ? new Date(reqStartDateTime) : parseDateTime(primaryDate, startTime);
-    const primaryEndDT = reqEndDateTime ? new Date(reqEndDateTime) : parseDateTime(primaryDate, endTime);
+    const primaryStartDT = reqStartDateTime ? parseInstant(reqStartDateTime) : parseDateTime(primaryDate, startTime);
+    const primaryEndDT = reqEndDateTime ? parseInstant(reqEndDateTime) : parseDateTime(primaryDate, endTime);
 
     // Ensure endDateTime is after startDateTime
     if (primaryEndDT <= primaryStartDT) {
-      primaryEndDT.setTime(primaryStartDT.getTime() + 4 * 60 * 60 * 1000); // default +4h
+      return res.status(400).json({ message: 'End time must be after start time.' });
     }
 
     // Process Location-based Ticket Tiers
@@ -109,12 +119,12 @@ export const createEvent = async (req, res) => {
     if (Array.isArray(reqLocations) && reqLocations.length > 0) {
       processedLocations = reqLocations.map((loc) => {
         const locDate = loc.date ? new Date(loc.date) : primaryDate;
-        const locStartDT = loc.startDateTime ? new Date(loc.startDateTime) : parseDateTime(locDate, loc.startTime || startTime);
-        const locEndDT = loc.endDateTime ? new Date(loc.endDateTime) : parseDateTime(locDate, loc.endTime || endTime);
+        const locStartDT = loc.startDateTime ? parseInstant(loc.startDateTime) : parseDateTime(locDate, loc.startTime || startTime);
+        const locEndDT = loc.endDateTime ? parseInstant(loc.endDateTime) : parseDateTime(locDate, loc.endTime || endTime);
 
         const tiers = (loc.ticketTiers || loc.ticketTypes || []).map((t) => {
           const totalQty = Number(t.totalQuantity || t.quantity || 0);
-          const soldQty = Number(t.soldQuantity || 0);
+          const soldQty = 0;
           const availQty = Math.max(0, totalQty - soldQty);
           return {
             name: t.name || 'General',
@@ -225,6 +235,14 @@ export const createEvent = async (req, res) => {
       }));
     }
 
+    for (const loc of processedLocations) {
+      if (!(loc.startDateTime > new Date()) || !(loc.endDateTime > loc.startDateTime) || !loc.ticketTiers.length) return res.status(400).json({ message: 'All locations require future dates, an end after start, and ticket tiers.' });
+      text(loc.name, 'venue', 200);
+      for (const tier of loc.ticketTiers) {
+        text(tier.name, 'ticket name', 100);
+        if (!Number.isSafeInteger(tier.totalQuantity) || tier.totalQuantity < 1 || tier.totalQuantity > 10000000 || !Number.isFinite(tier.price) || tier.price < 0 || tier.price > 999999.99 || Math.abs(tier.price * 100 - Math.round(tier.price * 100)) > 0.000001) return res.status(400).json({ message: 'Use whole ticket capacities and valid two-decimal prices.' });
+      }
+    }
     const primaryLocation = processedLocations[0];
     const isPublished = status === 'published';
 
@@ -234,8 +252,8 @@ export const createEvent = async (req, res) => {
       description,
       category: category || 'Music & Concerts',
       bannerUrl: bannerUrl || '',
-      startDateTime: primaryStartDT,
-      endDateTime: primaryEndDT,
+      startDateTime: new Date(Math.min(...processedLocations.map((loc) => +loc.startDateTime))),
+      endDateTime: new Date(Math.max(...processedLocations.map((loc) => +loc.endDateTime))),
       date: primaryLocation.date,
       startTime: primaryLocation.startTime,
       endTime: primaryLocation.endTime,
@@ -248,67 +266,56 @@ export const createEvent = async (req, res) => {
       ticketTypes: overallTicketTypes,
       contactEmail: contactEmail || req.user?.email || '',
       contactPhone: contactPhone || '',
+      bookingClosesAt: bookingClosesAt ? parseInstant(bookingClosesAt) : null,
       status: status || 'published',
       isPublished,
     });
 
     res.status(201).json(formatEventWithStatus(event));
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(['ValidationError', 'CastError'].includes(error.name) || error.status === 400 ? 400 : 503)
+      .json({ message: 'Unable to process event request. Check event dates, times and field values.' });
   }
 };
 
 // @desc    Get upcoming published events (Customer Home Page)
 // @route   GET /api/events/upcoming
 // @access  Public
-export const getUpcomingEvents = async (req, res) => {
-  try {
-    const currentTime = new Date();
-    // Filter events where startDateTime > currentTime and isPublished is true
-    const events = await Event.find({
-      isPublished: true,
-      startDateTime: { $gt: currentTime },
-    })
-      .populate('tenantId', 'name email')
-      .sort({ startDateTime: 1 });
-
-    const formattedEvents = events.map((e) => formatEventWithStatus(e, currentTime));
-    res.status(200).json(formattedEvents);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// @desc    Get all published events (Public / Customers)
-// @route   GET /api/events
-// @access  Public
 export const getAllEvents = async (req, res) => {
   try {
-    const currentTime = new Date();
-    const events = await Event.find({ isPublished: true })
-      .populate('tenantId', 'name email')
-      .sort({ startDateTime: 1 });
-
-    const formattedEvents = events.map((e) => formatEventWithStatus(e, currentTime));
-    res.status(200).json(formattedEvents);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    const now = new Date(), { page, limit, skip } = pageQuery(req.query);
+    const filter = { status: 'published', isPublished: true, approvalStatus: 'approved', isActive: { $ne: false },
+      isCancelled: { $ne: true }, cancelledAt: null, startDateTime: { $gt: now }, endDateTime: { $gt: now } };
+    if (req.query.search) filter.title = { $regex: literalSearch(req.query.search), $options: 'i' };
+    if (req.query.category) filter.category = text(req.query.category, 'category', 100);
+    if (req.query.location) filter.$or = [{ 'locations.name': { $regex: literalSearch(req.query.location), $options: 'i' } }, { location: { $regex: literalSearch(req.query.location), $options: 'i' } }];
+    if (req.query.status && req.query.status !== 'upcoming') return res.status(400).json({ message: 'Public discovery supports upcoming events only.' });
+    if (req.query.date) {
+      if (typeof req.query.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(req.query.date) || !Number.isFinite(Date.parse(req.query.date)) || new Date(req.query.date).toISOString().slice(0,10) !== req.query.date) return res.status(400).json({ message: 'Invalid date.' });
+      const from = new Date(req.query.date), to = new Date(+from + 86400000);
+      filter.startDateTime = { $gte: new Date(Math.max(+from, +now)), $lt: to };
+    }
+    const [events, total] = await Promise.all([Event.find(filter).populate('tenantId', 'name').sort({ startDateTime: 1, _id: 1 }).skip(skip).limit(limit), Event.countDocuments(filter)]);
+    return res.json(req.query.page ? { events: events.map((event) => formatEventWithStatus(event, now)), total, page, limit } : events.map((event) => formatEventWithStatus(event, now)));
+  } catch (error) { return bookingErrorResponse(res, error); }
 };
+export const getUpcomingEvents = getAllEvents;
 
 // @desc    Get location-based and tier-based availability for an event
 // @route   GET /api/events/:eventId/availability
 // @access  Public
 export const getEventAvailability = async (req, res) => {
   try {
-    const event = await Event.findById(req.params.eventId);
+    const event = await Event.findOne({ _id: req.params.eventId, status: 'published', isPublished: true, approvalStatus: 'approved',
+      isActive: { $ne: false }, isCancelled: { $ne: true }, cancelledAt: null });
     if (!event) {
       return res.status(404).json({ message: 'Event not found' });
     }
 
     const currentTime = new Date();
-    const status = calculateLifecycleStatus(event.startDateTime, event.endDateTime, currentTime);
-    const bookingAllowed = currentTime < new Date(event.startDateTime);
+    const status = event.isCancelled || event.status === 'cancelled' ? 'CANCELLED' : calculateLifecycleStatus(event.startDateTime, event.endDateTime, currentTime);
+    const bookingAllowed = currentTime < new Date(event.startDateTime) && event.availableTickets > 0 &&
+      (!event.bookingClosesAt || currentTime < new Date(event.bookingClosesAt));
 
     const formatted = formatEventWithStatus(event, currentTime);
 
@@ -342,7 +349,8 @@ export const getEventAvailability = async (req, res) => {
       locations: locationBreakdown,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(['ValidationError', 'CastError'].includes(error.name) || error.status === 400 ? 400 : 503)
+      .json({ message: 'Unable to process event request. Check event dates, times and field values.' });
   }
 };
 
@@ -356,7 +364,8 @@ export const getOrganizerEvents = async (req, res) => {
     const formattedEvents = events.map((e) => formatEventWithStatus(e, currentTime));
     res.status(200).json(formattedEvents);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(['ValidationError', 'CastError'].includes(error.name) || error.status === 400 ? 400 : 503)
+      .json({ message: 'Unable to process event request. Check event dates, times and field values.' });
   }
 };
 
@@ -365,7 +374,8 @@ export const getOrganizerEvents = async (req, res) => {
 // @access  Public
 export const getEventById = async (req, res) => {
   try {
-    const event = await Event.findById(req.params.id).populate('tenantId', 'name email contactNumber subscriptionPlan');
+    const event = await Event.findOne({ _id: req.params.id, status: 'published', isPublished: true, approvalStatus: 'approved',
+      isActive: { $ne: false }, isCancelled: { $ne: true }, cancelledAt: null }).populate('tenantId', 'name email contactNumber subscriptionPlan');
 
     if (!event) {
       return res.status(404).json({ message: 'Event not found' });
@@ -374,31 +384,21 @@ export const getEventById = async (req, res) => {
     const currentTime = new Date();
     res.status(200).json(formatEventWithStatus(event, currentTime));
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(['ValidationError', 'CastError'].includes(error.name) || error.status === 400 ? 400 : 503)
+      .json({ message: 'Unable to process event request. Check event dates, times and field values.' });
   }
 };
 
 // @desc    Delete an event (Organizer can only delete their own event)
 // @route   DELETE /api/events/:id
 // @access  Private (Organizer)
+export const updateEvent = async (req, res) => {
+  try { return res.json(formatEventWithStatus(await manageEvent(req.params.id, req.user, req.body))); }
+  catch (error) { return bookingErrorResponse(res, error); }
+};
 export const deleteEvent = async (req, res) => {
-  try {
-    const event = await Event.findById(req.params.id);
-
-    if (!event) {
-      return res.status(404).json({ message: 'Event not found' });
-    }
-
-    // Verify tenant ownership
-    if (event.tenantId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Not authorized to delete this event' });
-    }
-
-    await event.deleteOne();
-    res.status(200).json({ message: 'Event removed successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  try { return res.json({ message: 'Event cancelled. Paid bookings require verified admin refunds.', event: formatEventWithStatus(await manageEvent(req.params.id, req.user, req.body, 'cancel')) }); }
+  catch (error) { return bookingErrorResponse(res, error); }
 };
 
 // @desc    Get categories (Public API)
@@ -421,15 +421,12 @@ export const getCategoriesPublic = async (req, res) => {
         { name: 'Seminars & Webinars', description: 'Educational seminars and webinars' },
         { name: 'Food & Drink', description: 'Food festivals, wine tasting, and culinary events' },
       ];
-      try {
-        categories = await Category.insertMany(defaultCats);
-      } catch (e) {
-        categories = defaultCats;
-      }
+      categories = defaultCats;
     }
     res.status(200).json(categories);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(['ValidationError', 'CastError'].includes(error.name) || error.status === 400 ? 400 : 503)
+      .json({ message: 'Unable to process event request. Check event dates, times and field values.' });
   }
 };
 

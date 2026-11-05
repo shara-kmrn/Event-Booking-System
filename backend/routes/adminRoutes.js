@@ -1,13 +1,9 @@
 import express from 'express';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 import {
-  getAllUsers,
   updateUserRole,
   updateOrganizerPlan,
-  deleteUser,
   getAllEventsAdmin,
-  approveEvent,
-  rejectEvent,
   getCategories,
   createCategory,
   deleteCategory,
@@ -17,24 +13,25 @@ import {
   getAllTransactions,
   processRefund,
   getComplaints,
-  resolveComplaint,
 } from '../controllers/adminController.js';
 
+import { listUsers, setAccountStatus, moderateEvent, cancelEventAdmin, respondComplaint } from '../controllers/managementController.js';
 const router = express.Router();
 
 // All routes are protected and strictly accessible ONLY by superadmin
 router.use(protect, authorize('superadmin'));
 
 // User & Organizer Management
-router.get('/users', getAllUsers);
+router.get('/users', listUsers);
 router.put('/users/:id/role', updateUserRole);
 router.put('/organizers/:id/plan', updateOrganizerPlan);
-router.delete('/users/:id', deleteUser);
+router.put('/users/:id/status', setAccountStatus);
 
 // Event Approvals & Moderation
 router.get('/events', getAllEventsAdmin);
-router.put('/events/:id/approve', approveEvent);
-router.put('/events/:id/reject', rejectEvent);
+router.put('/events/:id/approve', moderateEvent('approved'));
+router.put('/events/:id/reject', moderateEvent('rejected'));
+router.post('/events/:id/cancel', cancelEventAdmin);
 
 // Category Management
 router.get('/categories', getCategories);
@@ -52,6 +49,6 @@ router.put('/transactions/:id/refund', processRefund);
 
 // Complaints & Support
 router.get('/complaints', getComplaints);
-router.put('/complaints/:id/resolve', resolveComplaint);
+router.put('/complaints/:id/resolve', respondComplaint);
 
 export default router;

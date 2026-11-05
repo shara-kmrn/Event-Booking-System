@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Booking from '../models/booking.js';
 import User from '../models/User.js';
 import Event from '../models/event.js';
+import { bookingResponse } from '../utils/bookingResponse.js';
 
 // @desc    Get metrics for logged-in Organizer
 // @route   GET /api/analytics/organizer
@@ -11,7 +12,7 @@ export const getOrganizerStats = async (req, res) => {
     const tenantId = req.user._id;
 
     const stats = await Booking.aggregate([
-      { $match: { tenantId: new mongoose.Types.ObjectId(tenantId), paymentStatus: 'paid' } },
+      { $match: { tenantId: new mongoose.Types.ObjectId(tenantId), paymentStatus: 'paid', bookingStatus: 'CONFIRMED', paymentVersion: 2, paymentVerifiedAt: { $type: 'date' }, refundRequested: { $ne: true }, paymentReviewRequired: { $ne: true } } },
       {
         $group: {
           _id: null,
@@ -24,7 +25,7 @@ export const getOrganizerStats = async (req, res) => {
 
     // Per-event sales breakdown
     const eventBreakdown = await Booking.aggregate([
-      { $match: { tenantId: new mongoose.Types.ObjectId(tenantId), paymentStatus: 'paid' } },
+      { $match: { tenantId: new mongoose.Types.ObjectId(tenantId), paymentStatus: 'paid', bookingStatus: 'CONFIRMED', paymentVersion: 2, paymentVerifiedAt: { $type: 'date' }, refundRequested: { $ne: true }, paymentReviewRequired: { $ne: true } } },
       {
         $group: {
           _id: '$eventId',
@@ -67,6 +68,9 @@ export const getOrganizerStats = async (req, res) => {
 export const getEventBookingsForOrganizer = async (req, res) => {
   try {
     const { eventId } = req.params;
+    if (!mongoose.isValidObjectId(eventId) || !(await Event.exists({ _id: eventId, tenantId: req.user._id }))) {
+      return res.status(404).json({ message: 'Event not found.' });
+    }
     const bookings = await Booking.find({
       eventId,
       tenantId: req.user._id,
@@ -74,7 +78,7 @@ export const getEventBookingsForOrganizer = async (req, res) => {
       .populate('customerId', 'name email contactNumber')
       .sort({ createdAt: -1 });
 
-    res.status(200).json(bookings);
+    res.status(200).json(bookings.map((booking) => bookingResponse(booking, { includePass: false })));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -86,6 +90,7 @@ export const getEventBookingsForOrganizer = async (req, res) => {
 export const getEventStatsForOrganizer = async (req, res) => {
   try {
     const { eventId } = req.params;
+    if (!mongoose.isValidObjectId(eventId)) return res.status(400).json({ message: 'Invalid event ID.' });
     const event = await Event.findById(eventId);
 
     if (!event) {
@@ -98,15 +103,15 @@ export const getEventStatsForOrganizer = async (req, res) => {
 
     const bookings = await Booking.find({
       eventId: event._id,
-      paymentStatus: { $in: ['paid', 'PAID', 'confirmed', 'CONFIRMED'] },
+      paymentStatus: 'paid', bookingStatus: 'CONFIRMED', paymentVersion: 2, paymentVerifiedAt: { $type: 'date' }, refundRequested: { $ne: true }, paymentReviewRequired: { $ne: true },
     });
 
     const totalTicketsSold = bookings.reduce((sum, b) => sum + (b.ticketQuantity || 0), 0);
     const totalRevenue = bookings.reduce((sum, b) => sum + (b.organizerRevenue || 0), 0);
-    const checkedInCount = bookings.filter((b) => b.isCheckedIn || b.ticketStatus === 'USED').length;
+    const checkedInCount = bookings.filter((b) => b.isCheckedIn || b.ticketStatus === 'USED').reduce((sum, booking) => sum + booking.ticketQuantity, 0);
 
     const currentTime = new Date();
-    const status = currentTime < new Date(event.startDateTime)
+    const status = event.isCancelled || event.status === 'cancelled' ? 'CANCELLED' : currentTime < new Date(event.startDateTime)
       ? 'UPCOMING'
       : currentTime < new Date(event.endDateTime)
       ? 'ONGOING'
@@ -153,7 +158,7 @@ export const getAdminStats = async (req, res) => {
     const totalEvents = await Event.countDocuments();
 
     const revenueMetrics = await Booking.aggregate([
-      { $match: { paymentStatus: 'paid' } },
+      { $match: { paymentStatus: 'paid', bookingStatus: 'CONFIRMED', paymentVersion: 2, paymentVerifiedAt: { $type: 'date' }, refundRequested: { $ne: true }, paymentReviewRequired: { $ne: true } } },
       {
         $group: {
           _id: null,

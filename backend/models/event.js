@@ -4,6 +4,7 @@ const ticketTierSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   price: { type: Number, required: true, min: 0 },
   totalQuantity: { type: Number, required: true, min: 0 },
+  reservedQuantity: { type: Number, default: 0, min: 0 },
   soldQuantity: { type: Number, default: 0, min: 0 },
   availableQuantity: { type: Number, required: true, min: 0 },
   expiryDate: { type: Date, default: null },
@@ -58,10 +59,29 @@ const eventSchema = new mongoose.Schema(
     contactPhone: { type: String, default: '' },
     status: {
       type: String,
-      enum: ['draft', 'published'],
+      enum: ['draft', 'published', 'cancelled'],
       default: 'published',
     },
     isPublished: { type: Boolean, default: true },
+    isActive: { type: Boolean, default: true },
+    isCancelled: { type: Boolean, default: false },
+    cancelledAt: { type: Date, default: null },
+    bookingClosesAt: { type: Date, default: null },
+    // Inventory and its reservation journal change in the same MongoDB document.
+    // Hidden from public/organizer responses; retained for crash recovery and idempotency.
+    reservationJournal: { type: [new mongoose.Schema({
+      booking: { type: mongoose.Schema.Types.ObjectId, required: true },
+      location: { type: mongoose.Schema.Types.ObjectId, required: true },
+      tier: { type: mongoose.Schema.Types.ObjectId, required: true },
+      quantity: { type: Number, required: true },
+      expiresAt: { type: Date, required: true },
+      status: { type: String, enum: ['HELD', 'CONSUMED', 'RELEASED'], required: true },
+      terminalStatus: { type: String, enum: ['FAILED', 'CANCELLED', 'EXPIRED'] },
+      paymentIntentId: { type: String },
+      verifiedAt: { type: Date },
+    }, { _id: false })], default: [], select: false },
+    cancellationReason: { type: String, default: '' },
+    rejectionReason: { type: String, default: '' },
     approvalStatus: {
       type: String,
       enum: ['pending', 'approved', 'rejected'],

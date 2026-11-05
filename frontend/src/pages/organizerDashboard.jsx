@@ -4,22 +4,26 @@ import {
   PlusCircle,
   DollarSign,
   Users,
-  Calendar,
   X,
-  Clock,
   MapPin,
   Tag,
   ImageIcon,
   Trash2,
   Plus,
-  Sparkles,
-  Zap,
 } from 'lucide-react';
+import { CheckInHistory, EventEditor, RecentBookings } from '../component/phase3Panels';
 import TicketVerifier from '../component/ticketVerifier';
+
+const requestOrganizerData = () => Promise.all([
+  API.get('/events/organizer'), API.get('/analytics/organizer'),
+]);
 
 const OrganizerDashboard = () => {
   const [events, setEvents] = useState([]);
   const [analytics, setAnalytics] = useState({ totalRevenue: 0, totalTicketsSold: 0 });
+  const [details, setDetails] = useState({ eventBreakdown: [], recentBookings: [] });
+  const [error, setError] = useState(''), [loading, setLoading] = useState(true), [editing, setEditing] = useState(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -47,22 +51,23 @@ const OrganizerDashboard = () => {
     ],
   });
 
-  useEffect(() => {
-    fetchOrganizerData();
-  }, []);
-
   const fetchOrganizerData = async () => {
     try {
-      const [eventsRes, analyticsRes] = await Promise.all([
-        API.get('/events/organizer'),
-        API.get('/analytics/organizer'),
-      ]);
+      const [eventsRes, analyticsRes] = await requestOrganizerData();
       setEvents(eventsRes.data);
-      setAnalytics(analyticsRes.data);
-    } catch (err) {
-      console.error('Failed to load dashboard data', err);
+      setAnalytics(analyticsRes.data.summary); setDetails(analyticsRes.data); setError('');
+    } catch {
+      setError('Unable to load organizer dashboard.');
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    requestOrganizerData().then(([eventsRes, analyticsRes]) => {
+      if (active) { setEvents(eventsRes.data); setAnalytics(analyticsRes.data.summary); setDetails(analyticsRes.data); setLoading(false); }
+    }).catch(() => { if (active) { setError('Unable to load organizer dashboard.'); setLoading(false); } });
+    return () => { active = false; };
+  }, []);
 
   // Image Upload Handler (Base64 file reader)
   const handleImageFileChange = (e) => {
@@ -222,58 +227,70 @@ const OrganizerDashboard = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 text-slate-100">
+    <div className="max-w-7xl mx-auto px-4 py-8 text-heading">
       
       {/* Page Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">Organizer Dashboard</h1>
-          <p className="text-slate-400 text-sm">Manage events, location capacity, ticket tiers, and gate verification.</p>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-heading tracking-tight">Organizer Dashboard</h1>
+          <p className="text-body text-sm">Manage events, location capacity, ticket tiers, and gate verification. New events need admin approval before customer booking.</p>
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/25 transition cursor-pointer"
+          className="flex items-center gap-2 bg-primary text-on-primary px-5 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer"
         >
           <PlusCircle className="w-4 h-4" />
           Create Event
         </button>
       </div>
 
+      {error && <p role="alert" className="text-danger mb-4">{error}</p>}
+      {loading && <p role="status">Loading dashboard?</p>}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {[['Total events','totalEvents'],['Upcoming','upcoming'],['Ongoing','ongoing'],['Completed','completed'],['Cancelled','cancelled'],['Available upcoming seats','availableTickets']].map(([label,key]) => <div key={key} className="ev-card p-4 rounded-xl"><p className="text-sm">{label}</p><strong className="text-2xl text-heading">{loading || error ? '?' : analytics[key] ?? 0}</strong></div>)}
+      </div>
       {/* Analytics Summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center gap-4 shadow-xl">
-          <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+        <div className="bg-card border border-border rounded-2xl p-5 flex items-center gap-4">
+          <div className="p-3 bg-primary-soft text-accent rounded-xl border border-primary-border">
             <DollarSign className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs text-slate-400 uppercase font-semibold">Net Earnings (After 5% Cut)</p>
-            <p className="text-2xl font-black text-white">${analytics.totalRevenue || 0} USD</p>
+            <p className="text-xs text-body uppercase font-semibold">Ticket Revenue (Service Fee Excluded)</p>
+            <p className="text-2xl font-black text-heading">{loading || error ? '?' : '$' + (analytics.totalRevenue || 0).toFixed(2) + ' USD'}</p>
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center gap-4 shadow-xl">
-          <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+        <div className="bg-card border border-border rounded-2xl p-5 flex items-center gap-4">
+          <div className="p-3 bg-primary-soft text-accent rounded-xl border border-primary-border">
             <Users className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs text-slate-400 uppercase font-semibold">Total Tickets Sold</p>
-            <p className="text-2xl font-black text-white">{analytics.totalTicketsSold || 0} Seats</p>
+            <p className="text-xs text-body uppercase font-semibold">Total Tickets Sold</p>
+            <p className="text-2xl font-black text-heading">{loading || error ? '?' : analytics.totalTicketsSold || 0} Seats</p>
           </div>
         </div>
       </div>
 
       {/* Gate Ticket Verifier */}
-      <TicketVerifier />
+      <TicketVerifier events={events} onCheckedIn={() => setHistoryVersion((value) => value + 1)} />
+      <CheckInHistory refreshKey={historyVersion} />
+      <RecentBookings bookings={details.recentBookings} />
+      <section className="ev-card p-5 rounded-2xl my-6"><h2 className="font-bold text-heading">Event sales</h2>
+        {!details.eventBreakdown.length && <p>No sales records yet.</p>}
+        {details.eventBreakdown.map((row) => <p key={row.eventId} className="py-2 border-b border-border">{row.eventTitle}: {row.ticketsSold} tickets | USD {row.revenue.toFixed(2)}</p>)}
+      </section>
+      {editing && <EventEditor event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); fetchOrganizerData(); }} />}
 
       {/* Events Breakdown Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        <div className="p-4 border-b border-slate-800 font-bold text-white flex justify-between items-center">
-          <span>Your Published Events & Location Capacity</span>
-          <span className="text-xs text-slate-400">{events.length} Active Events</span>
+      <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="p-4 border-b border-border font-bold text-heading flex justify-between items-center">
+          <span>Your Events & Location Capacity</span>
+          <span className="text-xs text-body">{events.length} Events</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-slate-300">
-            <thead className="bg-slate-950 text-xs uppercase text-slate-400 border-b border-slate-800">
+          <table className="w-full text-left text-sm text-body">
+            <thead className="bg-card text-xs uppercase text-body border-b border-border">
               <tr>
                 <th className="px-4 py-3.5">Title</th>
                 <th className="px-4 py-3.5">Lifecycle Status</th>
@@ -283,10 +300,10 @@ const OrganizerDashboard = () => {
                 <th className="px-4 py-3.5">Total Capacity</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80">
+            <tbody className="divide-y divide-border">
               {events.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-8 text-slate-500">
+                  <td colSpan="6" className="text-center py-8 text-subtle">
                     No events created yet. Click "Create Event" to get started!
                   </td>
                 </tr>
@@ -301,10 +318,10 @@ const OrganizerDashboard = () => {
                   ];
 
                   return (
-                    <tr key={evt._id} className="hover:bg-slate-800/50 transition align-top">
-                      <td className="px-4 py-3.5 font-bold text-white">
+                    <tr key={evt._id} className="hover:bg-secondary transition align-top">
+                      <td className="px-4 py-3.5 font-bold text-heading">
                         <div>{evt.title}</div>
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 font-normal">
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-primary-soft text-accent border border-primary-border font-normal">
                           {evt.category || 'General'}
                         </span>
                       </td>
@@ -312,10 +329,10 @@ const OrganizerDashboard = () => {
                         <span
                           className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border ${
                             status === 'COMPLETED'
-                              ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                              ? 'bg-error-soft text-danger border-error-border'
                               : status === 'ONGOING'
-                              ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                              ? 'bg-warning-soft text-warning border-warning-border'
+                              : 'bg-primary-soft text-accent border-primary-border'
                           }`}
                         >
                           {status}
@@ -323,9 +340,9 @@ const OrganizerDashboard = () => {
                       </td>
                       <td className="px-4 py-3.5 text-xs space-y-1">
                         {locs.map((loc, idx) => (
-                          <div key={idx} className="bg-slate-950 p-2 rounded-lg border border-slate-800">
-                            <div className="font-semibold text-white">{loc.name}</div>
-                            <div className="text-[10px] text-slate-400">
+                          <div key={idx} className="bg-card p-2 rounded-lg border border-border">
+                            <div className="font-semibold text-heading">{loc.name}</div>
+                            <div className="text-[10px] text-body">
                               {new Date(loc.date || evt.date).toLocaleDateString()} ({loc.startTime || '07:00 PM'})
                             </div>
                           </div>
@@ -339,17 +356,28 @@ const OrganizerDashboard = () => {
                           const isSoldOut = avail <= 0;
 
                           return (
-                            <div key={idx} className="flex items-center justify-between gap-3 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
-                              <span className="font-semibold text-white">{tier.name} (${tier.price})</span>
-                              <span className={isSoldOut ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
+                            <div key={idx} className="flex items-center justify-between gap-3 bg-card px-2.5 py-1 rounded border border-border">
+                              <span className="font-semibold text-heading">{tier.name} (${tier.price})</span>
+                              <span className={isSoldOut ? 'text-danger font-bold' : 'text-accent'}>
                                 {isSoldOut ? 'SOLD OUT' : `${avail} / ${total} left`}
                               </span>
                             </div>
                           );
                         })}
                       </td>
-                      <td className="px-4 py-3.5 font-bold text-emerald-400">{evt.availableTickets}</td>
-                      <td className="px-4 py-3.5 text-slate-400">{evt.totalCapacity || evt.totalTickets}</td>
+                      <td className="px-4 py-3.5 font-bold text-accent">{evt.availableTickets}</td>
+                      <td className="px-4 py-3.5 text-body">{evt.totalCapacity || evt.totalTickets}
+                        <p className="text-xs my-2">Approval: {evt.approvalStatus}{evt.rejectionReason && ': ' + evt.rejectionReason}</p>
+                        {!['COMPLETED','CANCELLED','ONGOING'].includes(evt.eventStatus) && <button onClick={() => setEditing(evt)} className="ev-btn-secondary px-3 py-2 rounded-lg">Edit</button>}
+                        {!['COMPLETED','CANCELLED'].includes(evt.eventStatus) && <button disabled={submitting} className="text-danger px-3 py-2" onClick={async () => {
+                          const reason = window.prompt('Reason for event cancellation (minimum 5 characters):');
+                          if (!reason || !window.confirm('Cancel this event? Paid bookings will need admin refund processing.')) return;
+                          setSubmitting(true);
+                          try { await API.post('/events/' + evt._id + '/cancel', { reason }); await fetchOrganizerData(); }
+                          catch (failure) { setError(failure.response?.data?.message || 'Cancellation failed.'); }
+                          finally { setSubmitting(false); }
+                        }}>Cancel event</button>}
+                      </td>
                     </tr>
                   );
                 })
@@ -362,18 +390,18 @@ const OrganizerDashboard = () => {
 
       {/* ==================== CREATE NEW EVENT MODAL (MATCHING SCREENSHOT) ==================== */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 z-50 overflow-hidden animate-in fade-in duration-200">
-          <div className="bg-[#0b0f19] border border-slate-800 rounded-3xl max-w-2xl w-full max-h-[90vh] shadow-2xl relative flex flex-col overflow-hidden">
+        <div className="fixed inset-0 bg-overlay flex items-center justify-center p-4 sm:p-6 z-50 overflow-hidden animate-in fade-in duration-200">
+          <div className="bg-card border border-border rounded-3xl max-w-2xl w-full max-h-[90vh] relative flex flex-col overflow-hidden">
             
             {/* Modal Header (Pinned at Top) */}
-            <div className="p-6 border-b border-slate-800/80 bg-[#0b0f19] shrink-0 flex justify-between items-start z-10">
+            <div className="p-6 border-b border-border bg-card shrink-0 flex justify-between items-start z-10">
               <div>
-                <h2 className="text-2xl font-black text-white tracking-tight">Create New Event</h2>
-                <p className="text-xs text-slate-400 mt-1">Fill in the details below to set up your event.</p>
+                <h2 className="text-2xl font-black text-heading tracking-tight">Create New Event</h2>
+                <p className="text-xs text-body mt-1">Fill in the details below to set up your event.</p>
               </div>
               <button
                 onClick={() => setShowModal(false)}
-                className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer"
+                className="p-2 text-body hover:text-heading rounded-xl hover:bg-secondary transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -381,12 +409,12 @@ const OrganizerDashboard = () => {
 
             {/* Form Body (Scrollable Container) */}
             <form onSubmit={handleCreateEvent} className="flex flex-col flex-1 overflow-hidden">
-              <div className="p-6 sm:p-8 overflow-y-auto space-y-6 flex-1 text-slate-100">
+              <div className="p-6 sm:p-8 overflow-y-auto space-y-6 flex-1 text-heading">
               
               {/* TITLE * */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  TITLE <span className="text-indigo-400">*</span>
+                <label className="block text-xs font-bold uppercase tracking-wider text-body mb-1.5">
+                  TITLE <span className="text-accent">*</span>
                 </label>
                 <input
                   type="text"
@@ -394,14 +422,14 @@ const OrganizerDashboard = () => {
                   placeholder="e.g. Summer Music Festival 2026"
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600 transition"
+                  className="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm text-heading focus:outline-none focus:border-primary-border placeholder-subtle transition"
                 />
               </div>
 
               {/* DESCRIPTION * */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  DESCRIPTION <span className="text-indigo-400">*</span>
+                <label className="block text-xs font-bold uppercase tracking-wider text-body mb-1.5">
+                  DESCRIPTION <span className="text-accent">*</span>
                 </label>
                 <textarea
                   required
@@ -409,7 +437,7 @@ const OrganizerDashboard = () => {
                   placeholder="Write a brief overview of your event..."
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600 transition leading-relaxed"
+                  className="w-full bg-card border border-border rounded-xl px-4 py-3 text-sm text-heading focus:outline-none focus:border-primary-border placeholder-subtle transition leading-relaxed"
                 />
               </div>
 
@@ -418,13 +446,13 @@ const OrganizerDashboard = () => {
                 
                 {/* CATEGORY */}
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center gap-1.5">
-                    <Tag className="w-3.5 h-3.5 text-indigo-400" /> CATEGORY
+                  <label className="block text-xs font-bold uppercase tracking-wider text-body mb-1.5 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-accent" /> CATEGORY
                   </label>
                   <select
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    className="w-full bg-card border border-border rounded-xl px-4 py-3 text-xs text-heading focus:outline-none focus:border-primary-border cursor-pointer"
                   >
                     <option value="Music & Concerts">Music & Concerts</option>
                     <option value="Conference">Conference</option>
@@ -443,16 +471,16 @@ const OrganizerDashboard = () => {
 
                 {/* COVER IMAGE */}
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center gap-1.5">
-                    <ImageIcon className="w-3.5 h-3.5 text-purple-400" /> COVER IMAGE (IMAGE ONLY)
+                  <label className="block text-xs font-bold uppercase tracking-wider text-body mb-1.5 flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-accent" /> COVER IMAGE (IMAGE ONLY)
                   </label>
                   
                   <div className="space-y-2">
-                    <label className="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 cursor-pointer hover:border-slate-700 transition">
-                      <span className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-xs transition">
+                    <label className="flex items-center gap-3 bg-card border border-border rounded-xl px-3 py-2 cursor-pointer hover:border-border transition">
+                      <span className="px-3 py-1 bg-primary hover:bg-primary-hover text-on-primary font-semibold rounded-lg text-xs transition">
                         Choose File
                       </span>
-                      <span className="text-xs text-slate-400 truncate">
+                      <span className="text-xs text-body truncate">
                         {formData.bannerUrl ? 'Image Selected' : 'No file chosen'}
                       </span>
                       <input
@@ -468,7 +496,7 @@ const OrganizerDashboard = () => {
                       placeholder="Or paste Image URL (https://...)"
                       value={formData.bannerUrl}
                       onChange={(e) => setFormData({ ...formData, bannerUrl: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600"
+                      className="w-full bg-card border border-border rounded-xl px-3 py-2 text-xs text-heading focus:outline-none focus:border-primary-border placeholder-subtle"
                     />
                   </div>
                 </div>
@@ -476,35 +504,35 @@ const OrganizerDashboard = () => {
               </div>
 
               {/* ==================== MULTI-LOCATION & SCHEDULE SECTION ==================== */}
-              <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-slate-800/90 space-y-4">
+              <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-border space-y-4">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-extrabold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-indigo-400" /> Locations & Tour Schedules
+                  <label className="text-xs font-extrabold uppercase tracking-wider text-heading flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-accent" /> Locations & Tour Schedules
                   </label>
                   <button
                     type="button"
                     onClick={handleAddSchedule}
-                    className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                    className="text-xs font-bold text-accent hover:text-accent flex items-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" /> Add Location Schedule
                   </button>
                 </div>
 
                 {formData.schedules.map((sched, idx) => (
-                  <div key={idx} className="p-4 bg-slate-950 border border-slate-800/80 rounded-xl space-y-3 relative">
+                  <div key={idx} className="p-4 bg-card border border-border rounded-xl space-y-3 relative">
                     {formData.schedules.length > 1 && (
                       <button
                         type="button"
                         onClick={() => handleRemoveSchedule(idx)}
-                        className="absolute top-3 right-3 text-rose-400 hover:text-rose-300 p-1 cursor-pointer"
+                        className="absolute top-3 right-3 text-danger hover:text-danger p-1 cursor-pointer"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     )}
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                        LOCATION <span className="text-indigo-400">*</span> {formData.schedules.length > 1 ? `#${idx + 1}` : ''}
+                      <label className="block text-[11px] font-bold text-body uppercase mb-1">
+                        LOCATION <span className="text-accent">*</span> {formData.schedules.length > 1 ? `#${idx + 1}` : ''}
                       </label>
                       <input
                         type="text"
@@ -512,27 +540,27 @@ const OrganizerDashboard = () => {
                         placeholder="e.g. Nelum Pokuna Theatre, Colombo"
                         value={sched.location}
                         onChange={(e) => handleScheduleChange(idx, 'location', e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                        className="w-full bg-card border border-border rounded-lg px-3 py-2 text-xs text-heading focus:outline-none focus:border-primary-border"
                       />
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                          DATE <span className="text-indigo-400 text-[9px]">(TODAY OR FUTURE)</span>
+                        <label className="block text-[11px] font-bold text-body uppercase mb-1">
+                          DATE <span className="text-accent text-[9px]">(TODAY OR FUTURE)</span>
                         </label>
                         <input
                           type="date"
                           required
                           value={sched.date}
                           onChange={(e) => handleScheduleChange(idx, 'date', e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-card border border-border rounded-lg px-3 py-2 text-xs text-heading focus:outline-none focus:border-primary-border"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                          START TIME <span className="text-indigo-400">*</span>
+                        <label className="block text-[11px] font-bold text-body uppercase mb-1">
+                          START TIME <span className="text-accent">*</span>
                         </label>
                         <input
                           type="text"
@@ -540,13 +568,13 @@ const OrganizerDashboard = () => {
                           placeholder="07:00 PM"
                           value={sched.startTime}
                           onChange={(e) => handleScheduleChange(idx, 'startTime', e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-card border border-border rounded-lg px-3 py-2 text-xs text-heading focus:outline-none focus:border-primary-border"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                          END TIME <span className="text-indigo-400">*</span>
+                        <label className="block text-[11px] font-bold text-body uppercase mb-1">
+                          END TIME <span className="text-accent">*</span>
                         </label>
                         <input
                           type="text"
@@ -554,7 +582,7 @@ const OrganizerDashboard = () => {
                           placeholder="11:00 PM"
                           value={sched.endTime}
                           onChange={(e) => handleScheduleChange(idx, 'endTime', e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-card border border-border rounded-lg px-3 py-2 text-xs text-heading focus:outline-none focus:border-primary-border"
                         />
                       </div>
                     </div>
@@ -563,23 +591,23 @@ const OrganizerDashboard = () => {
               </div>
 
               {/* ==================== MULTI-TIER TICKETS & EARLY BIRD AUTO-EXPIRY ==================== */}
-              <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-slate-800/90 space-y-4">
+              <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-border space-y-4">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-extrabold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-                    <Tag className="w-4 h-4 text-emerald-400" /> TICKET TYPES & PRICING
+                  <label className="text-xs font-extrabold uppercase tracking-wider text-heading flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-accent" /> TICKET TYPES & PRICING
                   </label>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => handleAddTier('Early Bird')}
-                      className="text-[11px] font-bold text-amber-400 hover:text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-1 rounded-lg cursor-pointer"
+                      className="text-[11px] font-bold text-warning hover:text-warning bg-warning-soft border border-warning-border px-2 py-1 rounded-lg cursor-pointer"
                     >
                       + Early Bird Tier
                     </button>
                     <button
                       type="button"
                       onClick={() => handleAddTier('')}
-                      className="text-xs font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                      className="text-xs font-bold text-accent hover:text-accent flex items-center gap-1 cursor-pointer"
                     >
                       + Add Tier
                     </button>
@@ -587,12 +615,12 @@ const OrganizerDashboard = () => {
                 </div>
 
                 {formData.ticketTypes.map((tier, idx) => (
-                  <div key={idx} className="p-4 bg-slate-950 border border-slate-800/80 rounded-xl space-y-3 relative">
+                  <div key={idx} className="p-4 bg-card border border-border rounded-xl space-y-3 relative">
                     {formData.ticketTypes.length > 1 && (
                       <button
                         type="button"
                         onClick={() => handleRemoveTier(idx)}
-                        className="absolute top-3 right-3 text-rose-400 hover:text-rose-300 p-1 cursor-pointer"
+                        className="absolute top-3 right-3 text-danger hover:text-danger p-1 cursor-pointer"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -600,8 +628,8 @@ const OrganizerDashboard = () => {
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                          TIER NAME <span className="text-indigo-400">*</span>
+                        <label className="block text-[11px] font-bold text-body uppercase mb-1">
+                          TIER NAME <span className="text-accent">*</span>
                         </label>
                         <input
                           type="text"
@@ -609,13 +637,13 @@ const OrganizerDashboard = () => {
                           placeholder="Early Bird / General / VIP"
                           value={tier.name}
                           onChange={(e) => handleTierChange(idx, 'name', e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-card border border-border rounded-lg px-3 py-2 text-xs text-heading focus:outline-none focus:border-primary-border"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                          PRICE ($ USD) <span className="text-indigo-400">*</span>
+                        <label className="block text-[11px] font-bold text-body uppercase mb-1">
+                          PRICE ($ USD) <span className="text-accent">*</span>
                         </label>
                         <input
                           type="number"
@@ -624,13 +652,13 @@ const OrganizerDashboard = () => {
                           placeholder="25"
                           value={tier.price}
                           onChange={(e) => handleTierChange(idx, 'price', e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-card border border-border rounded-lg px-3 py-2 text-xs text-heading focus:outline-none focus:border-primary-border"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                          TOTAL SEATS <span className="text-indigo-400">*</span>
+                        <label className="block text-[11px] font-bold text-body uppercase mb-1">
+                          TOTAL SEATS <span className="text-accent">*</span>
                         </label>
                         <input
                           type="number"
@@ -639,16 +667,16 @@ const OrganizerDashboard = () => {
                           placeholder="100"
                           value={tier.quantity}
                           onChange={(e) => handleTierChange(idx, 'quantity', e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                          className="w-full bg-card border border-border rounded-lg px-3 py-2 text-xs text-heading focus:outline-none focus:border-primary-border"
                         />
                       </div>
                     </div>
 
                     {/* EARLY BIRD CUTOFF / EXPIRY DATE */}
                     <div>
-                      <label className="block text-[11px] font-bold text-amber-400 uppercase mb-1 flex items-center justify-between">
+                      <label className="block text-[11px] font-bold text-warning uppercase mb-1 flex items-center justify-between">
                         <span>EARLY BIRD EXPIRATION DATE (OPTIONAL)</span>
-                        <span className="text-[10px] text-slate-400 font-normal lowercase">
+                        <span className="text-[10px] text-body font-normal lowercase">
                           (Auto-expires ticket after this date)
                         </span>
                       </label>
@@ -656,7 +684,7 @@ const OrganizerDashboard = () => {
                         type="date"
                         value={tier.expiryDate}
                         onChange={(e) => handleTierChange(idx, 'expiryDate', e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                        className="w-full bg-card border border-border rounded-lg px-3 py-2 text-xs text-heading focus:outline-none focus:border-warning-border"
                       />
                     </div>
                   </div>
@@ -666,18 +694,18 @@ const OrganizerDashboard = () => {
               </div>
 
               {/* ACTION BUTTONS (Pinned at Bottom) */}
-              <div className="p-4 sm:px-8 border-t border-slate-800/80 bg-[#0b0f19] shrink-0 flex justify-end gap-3 z-10">
+              <div className="p-4 sm:px-8 border-t border-border bg-card shrink-0 flex justify-end gap-3 z-10">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition cursor-pointer"
+                  className="px-5 py-2.5 bg-secondary hover:bg-secondary text-body font-bold rounded-xl text-xs transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-emerald-500 hover:from-indigo-500 hover:to-emerald-400 text-white font-bold rounded-xl text-xs shadow-lg shadow-indigo-600/25 transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                  className="px-6 py-2.5 bg-primary text-on-primary font-bold rounded-xl text-xs transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
                 >
                   {submitting ? 'Publishing Event...' : 'Publish Event'}
                 </button>

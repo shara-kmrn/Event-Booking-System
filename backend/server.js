@@ -1,8 +1,7 @@
+import 'dotenv/config';
 import express from 'express';
-import dotenv from 'dotenv';
 import cors from 'cors';
-
-dotenv.config();
+import { getSecurityConfig, createCorsOptions } from './config/security.js';
 
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
@@ -10,27 +9,36 @@ import eventRoutes from './routes/eventRoutes.js';
 import bookingRoutes from './routes/bookingRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
-import paymentRoutes from './routes/paymentRoutes.js';
+import paymentRoutes, { mountStripeWebhooks } from './routes/paymentRoutes.js';
+import Booking from './models/booking.js';
+import StripeWebhookEvent from './models/StripeWebhookEvent.js';
+import { validateBookingConfiguration } from './config/bookingSecurity.js';
+import { startBookingMaintenance } from './services/bookingMaintenance.js';
 import ticketRoutes from './routes/ticketRoutes.js';
 
-// Connect Database
-connectDB();
+let security;
+try { security = getSecurityConfig(); validateBookingConfiguration(); }
+catch (error) {
+  console.error(`Startup configuration error: ${error.message}`);
+  process.exit(1);
+}
+if (process.env.NODE_ENV !== 'production' && Buffer.byteLength(security.secret) < 32) {
+  console.warn('Use a random JWT_SECRET of at least 32 bytes before production.');
+}
+if (!process.env.SMTP_HOST || !process.env.FROM_EMAIL) {
+  console.warn('SMTP is not configured. Email-dependent authentication will return HTTP 503 until configured.');
+}
+await connectDB();
+try { await Promise.all([Booking.init(), StripeWebhookEvent.init()]); }
+catch { console.error('Booking indexes could not be initialized. Startup stopped safely.'); process.exit(1); }
 
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', security.trustProxyHops);
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) || origin === process.env.CLIENT_URL) {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    },
-    credentials: true,
-  })
-);
+app.use(cors(createCorsOptions(security)));
 
+mountStripeWebhooks(app);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
@@ -49,7 +57,18 @@ app.use('/api/tickets', ticketRoutes);
 app.use('/api/organizer', analyticsRoutes);
 
 
+app.use((req, res) => res.status(404).json({ message: 'Resource not found.' }));
+
+// Never return raw parser, CORS, or framework errors to clients.
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  const status = [400, 403, 413].includes(error.status) ? error.status : 500;
+  return res.status(status).json({ message: status === 403 ? 'Origin not allowed.' :
+    status === 400 ? 'Invalid request body.' : status === 413 ? 'Request body is too large.' : 'Unable to process request.' });
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  startBookingMaintenance();
 });

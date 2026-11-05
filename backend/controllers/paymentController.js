@@ -1,223 +1,108 @@
-import Stripe from 'stripe';
-import Event from '../models/event.js';
-import Booking from '../models/booking.js';
+import crypto from 'crypto';
+import StripeWebhookEvent from '../models/StripeWebhookEvent.js';
+import { BookingError, bookingErrorResponse, mongoId } from '../config/bookingSecurity.js';
+import { createPendingBooking, authorizedBooking, findBooking } from '../services/bookingService.js';
+import { preparePayment, synchronizePayment, ensureProviderObject } from '../services/paymentService.js';
+import { stripeGateway, expectsLiveMode } from '../services/stripeGateway.js';
+import { bookingResponse } from '../utils/bookingResponse.js';
 
-// Initialize Stripe with secret key from env
-const stripeKey = process.env.STRIPE_SECRET_KEY || 'sk_test_51MockStripeSecretKeyForDemo123456789';
-const stripe = new Stripe(stripeKey, {
-  apiVersion: '2023-10-16',
-});
-
-// @desc    Create Stripe PaymentIntent / Checkout session with full backend validations
-// @route   POST /api/payment/create-payment-intent or /api/payment/create-checkout-session
-// @access  Private
-export const createPaymentIntent = async (req, res) => {
+const initiate = (flow) => async (req, res) => {
   try {
-    const { eventId, locationId, ticketTierId, ticketQuantity, ticketType } = req.body;
-    const quantity = Number(ticketQuantity) || 1;
-
-    // 1. Find Event
-    const event = await Event.findById(eventId);
-    if (!event) {
-      return res.status(404).json({ message: 'Event not found.' });
+    const body = req.body || {};
+    const booking = body.bookingId ?
+      await authorizedBooking(body.bookingId, req.user, { customerOnly: true }) :
+      await createPendingBooking(req.user, body, req.get('Idempotency-Key'));
+    if (body.bookingId && Object.keys(body).some((key) => key !== 'bookingId')) {
+      throw new BookingError(400, 'Payment initiation accepts only the booking ID.');
     }
+    const result = await preparePayment(booking, req.user, flow);
+    return res.json({ ...result, booking: bookingResponse(result.booking) });
+  } catch (error) { return bookingErrorResponse(res, error); }
+};
+export const createPaymentIntent = initiate('intent');
+export const createCheckoutSession = initiate('checkout');
 
-    // 2. Server Time Validation - Ensure Event Has Not Started
-    const currentTime = new Date();
-    if (currentTime >= new Date(event.startDateTime)) {
-      return res.status(400).json({
-        message: 'Booking for this event is closed because the event has already started.',
-      });
-    }
-
-    // 3. Determine price per ticket from selected location & tier
-    let unitPrice = event.ticketPrice;
-    let selectedTierName = ticketType || 'General';
-
-    if (event.locations && event.locations.length > 0) {
-      const loc = event.locations.find((l) => l._id?.toString() === locationId || l.name === locationId) || event.locations[0];
-      const tier = loc.ticketTiers.find((t) => t._id?.toString() === ticketTierId || t.name === ticketType) || loc.ticketTiers[0];
-      if (tier) {
-        unitPrice = tier.price;
-        selectedTierName = tier.name;
-        if (tier.availableQuantity < quantity) {
-          return res.status(400).json({
-            message: `Only ${tier.availableQuantity} tickets are available for this ticket type.`,
-          });
-        }
-      }
-    } else if (Array.isArray(event.ticketTypes) && event.ticketTypes.length > 0) {
-      const tier = event.ticketTypes.find((t) => t.name === ticketType);
-      if (tier) {
-        unitPrice = tier.price;
-        selectedTierName = tier.name;
-        if (tier.availableQuantity < quantity) {
-          return res.status(400).json({
-            message: `Only ${tier.availableQuantity} tickets are available for this ticket type.`,
-          });
-        }
-      }
-    }
-
-    const subtotal = unitPrice * quantity;
-    const platformFee = Math.round(subtotal * 0.05 * 100) / 100;
-    const grandTotal = Math.round((subtotal + platformFee) * 100) / 100;
-    const amountInCents = Math.round(grandTotal * 100);
-
-    // Create PaymentIntent via Stripe API if key configured
-    try {
-      if (process.env.STRIPE_SECRET_KEY) {
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount: amountInCents,
-          currency: 'usd',
-          automatic_payment_methods: { enabled: true },
-          metadata: {
-            eventId: event._id.toString(),
-            eventTitle: event.title,
-            customerId: req.user._id.toString(),
-            quantity: quantity.toString(),
-            ticketType: selectedTierName,
-          },
-        });
-
-        return res.status(200).json({
-          clientSecret: paymentIntent.client_secret,
-          paymentIntentId: paymentIntent.id,
-          amount: grandTotal,
-          currency: 'usd',
-        });
-      }
-    } catch (stripeErr) {
-      console.warn('Stripe API Warning (Using Sandbox Fallback):', stripeErr.message);
-    }
-
-    // Fallback sandbox intent for local testing
-    const mockIntentId = `pi_mock_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-    const mockClientSecret = `${mockIntentId}_secret_mock${Math.random().toString(36).substr(2, 8)}`;
-
-    res.status(200).json({
-      clientSecret: mockClientSecret,
-      paymentIntentId: mockIntentId,
-      amount: grandTotal,
-      currency: 'usd',
-      isSandbox: true,
-    });
-  } catch (error) {
-    console.error('Error creating Stripe PaymentIntent:', error);
-    res.status(500).json({ message: error.message || 'Payment initialization failed' });
+export const applyStripeEvent = async (event) => {
+  const supported = [
+    'charge.refunded', 'refund.created', 'refund.updated', 'refund.failed',
+    'payment_intent.succeeded', 'payment_intent.payment_failed', 'payment_intent.canceled',
+    'checkout.session.completed', 'checkout.session.expired',
+    'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed',
+  ];
+  if (!supported.includes(event.type)) return;
+  const object = event.data?.object;
+  const refundEvent = event.type === 'charge.refunded' || event.type.startsWith('refund.');
+  let id = object?.metadata?.bookingId;
+  if (refundEvent && !mongoId(id)) {
+    const intentId = typeof object?.payment_intent === 'string' ? object.payment_intent : object?.payment_intent?.id;
+    if (!/^pi_[A-Za-z0-9_]+$/.test(intentId || '')) return;
+    const intent = await stripeGateway.client().paymentIntents.retrieve(intentId);
+    id = intent.metadata?.bookingId;
   }
+  if (!mongoId(id)) return;
+  let booking = await findBooking(id);
+  if (booking.paymentVersion !== 2) throw new BookingError(409, 'Legacy payment requires manual review.');
+  await ensureProviderObject(booking);
+  booking = await findBooking(booking._id.toString());
+  if (refundEvent) {
+    await synchronizePayment(booking, { refresh: true, inspectRefunds: true });
+    return;
+  }
+  if (event.type.startsWith('checkout.session.')) {
+    if (object.id !== booking.stripeCheckoutSessionId) throw new BookingError(409, 'Checkout event reference mismatch.', 'PAYMENT_MISMATCH');
+  } else {
+    // For Checkout, the PaymentIntent is bound only from Stripe's retrieved session.
+    if (!booking.stripePaymentIntentId) await synchronizePayment(booking);
+    booking = await findBooking(booking._id.toString());
+    if (object.id !== booking.stripePaymentIntentId) throw new BookingError(409, 'Payment event reference mismatch.', 'PAYMENT_MISMATCH');
+  }
+  await synchronizePayment(booking, { refresh: true });
 };
 
-// @desc    Create Stripe Checkout Session
-// @route   POST /api/payment/create-checkout-session
-// @access  Private
-export const createCheckoutSession = async (req, res) => {
-  try {
-    const { eventId, locationId, ticketTierId, ticketQuantity, ticketType } = req.body;
-    const quantity = Number(ticketQuantity) || 1;
-
-    const event = await Event.findById(eventId);
-    if (!event) {
-      return res.status(404).json({ message: 'Event not found.' });
-    }
-
-    // Server time validation
-    if (new Date() >= new Date(event.startDateTime)) {
-      return res.status(400).json({
-        message: 'Booking for this event is closed because the event has already started.',
-      });
-    }
-
-    let unitPrice = event.ticketPrice;
-    let selectedTierName = ticketType || 'General';
-
-    if (event.locations && event.locations.length > 0) {
-      const loc = event.locations.find((l) => l._id?.toString() === locationId) || event.locations[0];
-      const tier = loc.ticketTiers.find((t) => t._id?.toString() === ticketTierId || t.name === ticketType) || loc.ticketTiers[0];
-      if (tier) {
-        unitPrice = tier.price;
-        selectedTierName = tier.name;
-        if (tier.availableQuantity < quantity) {
-          return res.status(400).json({
-            message: `Only ${tier.availableQuantity} tickets are available for this ticket type.`,
-          });
-        }
-      }
-    }
-
-    const subtotal = unitPrice * quantity;
-    const platformFee = Math.round(subtotal * 0.05 * 100) / 100;
-    const grandTotal = Math.round((subtotal + platformFee) * 100) / 100;
-
-    if (process.env.STRIPE_SECRET_KEY) {
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        line_items: [
-          {
-            price_data: {
-              currency: 'usd',
-              product_data: {
-                name: `${event.title} - ${selectedTierName}`,
-                description: `Ticket(s) for ${event.title}`,
-              },
-              unit_amount: Math.round(grandTotal * 100 / quantity),
-            },
-            quantity,
-          },
-        ],
-        mode: 'payment',
-        success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/my-tickets?success=true`,
-        cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/?cancelled=true`,
-        metadata: {
-          eventId: event._id.toString(),
-          customerId: req.user._id.toString(),
-          quantity: quantity.toString(),
-          ticketType: selectedTierName,
-        },
-      });
-
-      return res.status(200).json({ sessionId: session.id, url: session.url });
-    }
-
-    res.status(200).json({
-      sessionId: `cs_mock_${Date.now()}`,
-      url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/my-tickets?sandbox=true`,
-      isSandbox: true,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// @desc    Stripe Webhook Listener
-// @route   POST /api/payment/webhook
-// @access  Public (Stripe Webhook Signature)
 export const handleStripeWebhook = async (req, res) => {
-  const sig = req.headers['stripe-signature'];
   let event;
-
   try {
-    if (process.env.STRIPE_WEBHOOK_SECRET) {
-      event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    } else {
-      event = req.body;
+    const stripe = stripeGateway.client();
+    if (!Buffer.isBuffer(req.body) || typeof req.headers['stripe-signature'] !== 'string') {
+      return res.status(400).json({ message: 'A signed raw Stripe payload is required.' });
     }
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
+    if (!/^evt_[A-Za-z0-9_]+$/.test(event.id || '') || event.livemode !== expectsLiveMode()) {
+      return res.status(400).json({ message: 'Invalid Stripe event.' });
+    }
+  } catch (error) {
+    return res.status(error instanceof BookingError ? error.status : 400).json({
+      message: error instanceof BookingError ? error.message : 'Invalid Stripe webhook signature.',
+    });
   }
-
-  if (event.type === 'payment_intent.succeeded' || event.type === 'checkout.session.completed') {
-    const paymentObject = event.data.object;
-    const intentId = paymentObject.id;
-
-    // Update corresponding booking to paid & confirmed
-    await Booking.findOneAndUpdate(
-      { stripePaymentIntentId: intentId },
-      { paymentStatus: 'paid', bookingStatus: 'CONFIRMED', ticketStatus: 'VALID' }
-    );
-  }
-
-  res.status(200).json({ received: true });
+  try {
+    const prior = await StripeWebhookEvent.findById(event.id);
+    if (prior?.status === 'PROCESSED') return res.json({ received: true, duplicate: true });
+    const now = new Date();
+    let lease;
+    const leaseToken = crypto.randomUUID();
+    try {
+      lease = await StripeWebhookEvent.findOneAndUpdate({
+        _id: event.id, $or: [{ leaseUntil: { $lte: now } }, { leaseUntil: { $exists: false } }],
+        status: { $ne: 'PROCESSED' },
+      }, { $set: { type: event.type, status: 'PROCESSING', leaseToken, leaseUntil: new Date(Date.now() + 120000) } },
+      { upsert: true, returnDocument: 'after' });
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+      const current = await StripeWebhookEvent.findById(event.id);
+      if (current?.status === 'PROCESSED') return res.json({ received: true, duplicate: true });
+      return res.status(503).json({ message: 'This Stripe event is already being processed. Retry later.' });
+    }
+    if (!lease) return res.status(503).json({ message: 'Stripe event processing is busy.' });
+    try {
+      await applyStripeEvent(event);
+      await StripeWebhookEvent.updateOne({ _id: event.id, leaseToken }, {
+        $set: { status: 'PROCESSED', processedAt: new Date() }, $unset: { leaseUntil: '', leaseToken: '' },
+      });
+    } catch (error) {
+      await StripeWebhookEvent.updateOne({ _id: event.id, leaseToken }, { $set: { status: 'RETRY', leaseUntil: new Date(0) } });
+      throw error;
+    }
+    return res.json({ received: true });
+  } catch (error) { return bookingErrorResponse(res, error); }
 };
-

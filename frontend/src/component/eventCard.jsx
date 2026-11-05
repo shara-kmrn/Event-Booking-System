@@ -1,14 +1,5 @@
 import { Calendar, MapPin, Tag, ArrowRight, Zap, AlertCircle, Clock } from 'lucide-react';
 
-const categoryColors = {
-  Conference: 'from-blue-500/20 to-indigo-500/20 text-blue-300 border-blue-500/30',
-  Concert: 'from-pink-500/20 to-rose-500/20 text-pink-300 border-pink-500/30',
-  Workshop: 'from-amber-500/20 to-orange-500/20 text-amber-300 border-amber-500/30',
-  Tech: 'from-cyan-500/20 to-teal-500/20 text-cyan-300 border-cyan-500/30',
-  Sports: 'from-emerald-500/20 to-green-500/20 text-emerald-300 border-emerald-500/30',
-  General: 'from-purple-500/20 to-indigo-500/20 text-purple-300 border-purple-500/30',
-};
-
 const defaultCategoryImages = {
   Conference: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=600&q=80',
   Concert: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=600&q=80',
@@ -20,8 +11,7 @@ const defaultCategoryImages = {
 
 const EventCard = ({ event, onBook }) => {
   const isSoldOut = event.availableTickets <= 0;
-  const categoryKey = event.category && categoryColors[event.category] ? event.category : 'General';
-  const badgeStyle = categoryColors[categoryKey];
+  const categoryKey = event.category && defaultCategoryImages[event.category] ? event.category : 'General';
   const coverImage = event.bannerUrl || event.image || defaultCategoryImages[categoryKey];
 
   const totalTickets = event.totalCapacity || event.totalTickets || 100;
@@ -33,104 +23,100 @@ const EventCard = ({ event, onBook }) => {
   const isCompleted = eventStatus === 'COMPLETED';
   const isBookingAllowed = event.bookingAllowed !== false && eventStatus === 'UPCOMING' && !isSoldOut;
 
+  const statusStyles = {
+    COMPLETED: { backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)' },
+    ONGOING: { backgroundColor: 'var(--warning-bg)', color: 'var(--warning-text)', border: '1px solid var(--warning-border)' },
+    UPCOMING: { backgroundColor: 'var(--success-bg)', color: 'var(--success-text)', border: '1px solid var(--success-border)' },
+  };
+
   return (
-    <div className="group glass-card rounded-2xl overflow-hidden flex flex-col justify-between transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-indigo-500/15 relative border border-slate-800">
-      
-      {/* Top Banner Image with Gradient Overlay */}
-      <div className="relative h-48 w-full overflow-hidden bg-slate-900">
+    <div
+      className="group rounded-2xl overflow-hidden flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 relative ev-card"
+    >
+      {/* Banner Image */}
+      <div className="relative h-48 w-full overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)' }}>
         <img
           src={coverImage}
           alt={event.title}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80"
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-85"
           loading="lazy"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
-        
-        {/* Category Badge & Status Badge */}
+
+        {/* Category & Status Badges */}
         <div className="absolute top-3 left-3 flex items-center gap-2">
-          <span className={`text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full border backdrop-blur-md bg-gradient-to-r ${badgeStyle}`}>
+          <span
+            className="text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full"
+            style={{ backgroundColor: 'var(--primary-muted)', color: 'var(--accent-text)', border: '1px solid var(--primary-border)' }}
+          >
             {event.category || 'General'}
           </span>
-          <span
-            className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border backdrop-blur-md ${
-              isCompleted
-                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                : isOngoing
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-            }`}
-          >
+          <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full" style={statusStyles[eventStatus] || statusStyles.UPCOMING}>
             {eventStatus}
           </span>
         </div>
 
-        {/* Price Tag Badge */}
+        {/* Price Badge */}
         <div className="absolute top-3 right-3">
-          <div className="bg-slate-950/80 backdrop-blur-md border border-emerald-500/40 px-3 py-1 rounded-full flex items-center gap-1 shadow-lg">
-            <span className="text-xs text-slate-400 font-medium">USD</span>
-            <span className="text-base font-extrabold text-emerald-400">${event.ticketPrice}</span>
+          <div
+            className="px-3 py-1 rounded-full flex items-center gap-1"
+            style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--primary-border)' }}
+          >
+            <span className="text-xs font-medium" style={{ color: 'var(--text-subtle)' }}>USD</span>
+            <span className="text-base font-extrabold" style={{ color: 'var(--accent-text)' }}>${event.ticketPrice}</span>
           </div>
         </div>
       </div>
 
-      {/* Card Content Body */}
+      {/* Card Body */}
       <div className="p-5 flex-1 flex flex-col justify-between">
         <div>
-          <h3 className="text-xl font-bold text-white mb-2 line-clamp-1 group-hover:text-indigo-300 transition-colors">
+          <h3 className="text-lg font-bold mb-2 line-clamp-1 group-hover:text-accent transition-colors" style={{ color: 'var(--text-heading)' }}>
             {event.title}
           </h3>
-          <p className="text-slate-400 text-sm mb-4 line-clamp-2 leading-relaxed">
+          <p className="text-sm mb-4 line-clamp-2 leading-relaxed" style={{ color: 'var(--text-subtle)' }}>
             {event.description || 'Experience an unmissable live event with real-time atomic seat reservation.'}
           </p>
 
-          {/* Details Metadata */}
-          <div className="space-y-2 text-xs text-slate-300 border-t border-slate-800/80 pt-3 mb-4">
+          {/* Metadata */}
+          <div className="space-y-2 text-xs pt-3 mb-4" style={{ borderTop: '1px solid var(--border)' }}>
             <div className="flex items-center gap-2">
-              <div className="p-1 rounded bg-indigo-500/10 text-indigo-400">
+              <div className="p-1 rounded" style={{ backgroundColor: 'var(--primary-muted)', color: 'var(--accent-text)' }}>
                 <Calendar className="w-3.5 h-3.5" />
               </div>
-              <span className="font-medium text-slate-200">
+              <span className="font-medium" style={{ color: 'var(--text-heading)' }}>
                 {new Date(event.startDateTime || event.date).toLocaleDateString(undefined, {
-                  weekday: 'short',
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric',
+                  weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
                 })}
               </span>
-              <span className="text-slate-400">({event.startTime || '07:00 PM'})</span>
+              <span style={{ color: 'var(--text-subtle)' }}>({event.startDateTime ? new Date(event.startDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : event.startTime || 'Time TBA'})</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="p-1 rounded bg-purple-500/10 text-purple-400">
+              <div className="p-1 rounded" style={{ backgroundColor: 'var(--primary-muted)', color: 'var(--accent-text)' }}>
                 <MapPin className="w-3.5 h-3.5" />
               </div>
-              <span className="truncate text-slate-300">{event.location}</span>
+              <span className="truncate" style={{ color: 'var(--text-body)' }}>{event.location}</span>
             </div>
           </div>
         </div>
 
-        {/* Live Seat Availability Bar */}
+        {/* Availability Bar */}
         <div>
           <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="text-slate-400 flex items-center gap-1 font-medium">
-              <Tag className="w-3 h-3 text-indigo-400" /> Availability
+            <span className="flex items-center gap-1 font-medium" style={{ color: 'var(--text-subtle)' }}>
+              <Tag className="w-3 h-3" style={{ color: 'var(--accent-text)' }} /> Availability
             </span>
-            <span className={isSoldOut ? 'text-rose-400 font-bold' : 'text-slate-300 font-medium'}>
+            <span className="font-medium" style={{ color: isSoldOut ? 'var(--error-text)' : 'var(--text-body)' }}>
               {isSoldOut ? 'Sold Out' : `${remainingTickets} left`}
             </span>
           </div>
-          
-          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-4">
+
+          <div className="w-full h-1.5 rounded-full overflow-hidden mb-4" style={{ backgroundColor: 'var(--bg-secondary)' }}>
             <div
-              className={`h-full transition-all duration-500 ${
-                isSoldOut || isCompleted
-                  ? 'bg-rose-500'
-                  : isOngoing
-                  ? 'bg-amber-400'
-                  : bookedPercent > 80
-                  ? 'bg-amber-400'
-                  : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400'
-              }`}
-              style={{ width: `${isSoldOut ? 100 : Math.max(8, 100 - bookedPercent)}%` }}
+              className="h-full transition-all duration-500"
+              style={{
+                width: `${isSoldOut ? 100 : Math.max(8, 100 - bookedPercent)}%`,
+                backgroundColor: (isSoldOut || isCompleted) ? 'var(--error-text)' : (isOngoing || bookedPercent > 80) ? 'var(--warning-text)' : 'var(--primary)',
+              }}
             />
           </div>
 
@@ -138,37 +124,34 @@ const EventCard = ({ event, onBook }) => {
           <button
             onClick={() => isBookingAllowed && onBook(event)}
             disabled={!isBookingAllowed}
-            className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all duration-200 shadow-md ${
-              !isBookingAllowed
-                ? 'bg-slate-800/80 text-slate-500 border border-slate-700/50 cursor-not-allowed'
-                : 'bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-500/25 hover:shadow-indigo-500/40 cursor-pointer active:scale-[0.98]'
-            }`}
+            className="w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer"
+            style={{
+              backgroundColor: !isBookingAllowed ? 'var(--bg-secondary)' : 'var(--primary)',
+              color: !isBookingAllowed ? 'var(--text-subtle)' : 'var(--text-on-primary)',
+              border: !isBookingAllowed ? '1px solid var(--border)' : 'none',
+              cursor: !isBookingAllowed ? 'not-allowed' : 'pointer',
+            }}
+            onMouseEnter={e => { if (isBookingAllowed) e.currentTarget.style.backgroundColor = 'var(--primary-hover)'; }}
+            onMouseLeave={e => { if (isBookingAllowed) e.currentTarget.style.backgroundColor = 'var(--primary)'; }}
           >
             {isCompleted ? (
-              <>
-                <Clock className="w-4 h-4 text-rose-400" /> Event Ended
-              </>
+              <><Clock className="w-4 h-4" /> Event Ended</>
             ) : isOngoing || event.bookingAllowed === false ? (
-              <>
-                <AlertCircle className="w-4 h-4 text-amber-400" /> Booking Closed
-              </>
+              <><AlertCircle className="w-4 h-4" /> Booking Closed</>
             ) : isSoldOut ? (
-              <>
-                <AlertCircle className="w-4 h-4 text-rose-400" /> Sold Out
-              </>
+              <><AlertCircle className="w-4 h-4" /> Sold Out</>
             ) : (
               <>
-                <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+                <Zap className="w-4 h-4" />
                 Book Now
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
               </>
             )}
           </button>
         </div>
       </div>
-
     </div>
   );
 };
 
-export default EventCard;
+export default EventCard;

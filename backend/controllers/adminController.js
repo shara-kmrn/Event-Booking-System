@@ -1,16 +1,20 @@
 import User from '../models/User.js';
+import { PUBLIC_USER_FIELDS, userResponse } from '../utils/userResponse.js';
 import Event from '../models/event.js';
 import Booking from '../models/booking.js';
 import Category from '../models/category.js';
 import Venue from '../models/venue.js';
 import Complaint from '../models/complaints.js';
+import { bookingResponse } from '../utils/bookingResponse.js';
+import { requestVerifiedRefund } from '../services/paymentService.js';
+import { bookingErrorResponse, mongoId } from '../config/bookingSecurity.js';
 
 // @desc    Get all users in the system
 // @route   GET /api/admin/users
 // @access  Private (Superadmin only)
 export const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find({}).select('-password').sort({ createdAt: -1 });
+    const users = await User.find({}).select(PUBLIC_USER_FIELDS).sort({ createdAt: -1 });
     res.status(200).json(users);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -32,10 +36,12 @@ export const updateUserRole = async (req, res) => {
       return res.status(404).json({ message: 'User not found.' });
     }
 
-    user.role = role;
-    await user.save();
+    if (user.role === 'superadmin') return res.status(409).json({ message: 'Administrator roles cannot be changed through this action.' });
+    const updated = await User.findOneAndUpdate({ _id: user._id, role: { $ne: 'superadmin' } }, {
+      $set: { role }, $inc: { sessionVersion: 1 },
+    }, { returnDocument: 'after', runValidators: true });
 
-    res.status(200).json({ message: `User role updated to ${role}`, user });
+    res.status(200).json({ message: `User role updated to ${role}`, user: userResponse(updated) });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -59,7 +65,7 @@ export const updateOrganizerPlan = async (req, res) => {
     user.subscriptionPlan = subscriptionPlan;
     await user.save();
 
-    res.status(200).json({ message: `Subscription plan updated to ${subscriptionPlan}`, user });
+    res.status(200).json({ message: `Subscription plan updated to ${subscriptionPlan}`, user: userResponse(user) });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -221,11 +227,11 @@ export const deleteVenue = async (req, res) => {
 // @access  Private (Superadmin only)
 export const getAllTransactions = async (req, res) => {
   try {
-    const transactions = await Booking.find({})
-      .populate('userId', 'name email')
+    const transactions = await Booking.find({ paymentVersion: 2, paymentVerifiedAt: { $type: 'date' } })
+      .populate('customerId', 'name')
       .populate('eventId', 'title')
       .sort({ createdAt: -1 });
-    res.status(200).json(transactions);
+    res.status(200).json(transactions.map((booking) => ({ ...bookingResponse(booking, { includePass: false, includeCustomer: false }), customer: { name: booking.customerId?.name || 'Customer' } })));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -236,18 +242,15 @@ export const getAllTransactions = async (req, res) => {
 // @access  Private (Superadmin only)
 export const processRefund = async (req, res) => {
   try {
+    if (!mongoId(req.params.id)) return res.status(400).json({ message: 'Invalid booking ID.' });
     const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-      return res.status(404).json({ message: 'Booking transaction not found.' });
-    }
-
-    booking.paymentStatus = 'refunded';
-    await booking.save();
-
-    res.status(200).json({ message: 'Refund marked as processed successfully.', booking });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    if (!booking) return res.status(404).json({ message: 'Booking not found.' });
+    const updated = await requestVerifiedRefund(booking);
+    return res.status(updated.needsReconciliation ? 202 : 200).json({
+      message: updated.paymentStatus === 'refunded' ? 'Stripe refund verified.' : 'Refund requested; provider reconciliation is pending.',
+      booking: bookingResponse(updated, { includePass: false }),
+    });
+  } catch (error) { return bookingErrorResponse(res, error); }
 };
 
 // @desc    Get all complaints

@@ -1,5 +1,6 @@
 import express from 'express';
 import {
+  updateEvent,
   createEvent,
   getAllEvents,
   getUpcomingEvents,
@@ -17,6 +18,8 @@ const router = express.Router();
 router.get('/organizer', protect, authorize('organizer'), getOrganizerEvents);
 router.get('/my/tenant-events', protect, authorize('organizer'), getOrganizerEvents);
 router.post('/', protect, authorize('organizer'), createEvent);
+router.put('/:id', protect, authorize('organizer'), updateEvent);
+router.post('/:id/cancel', protect, authorize('organizer'), deleteEvent);
 router.delete('/:id', protect, authorize('organizer'), deleteEvent);
 
 // Public Routes
