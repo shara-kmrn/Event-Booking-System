@@ -1,214 +1,152 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import API from '../api/axios';
 import EventCard from '../component/eventCard';
+import BookingModal from '../component/bookingModal';
 import { useAuth } from '../context/authContext';
 import { useNavigate } from 'react-router-dom';
 import {
-  Search,
-  Sparkles,
-  Zap,
-  ShieldCheck,
-  QrCode,
-  TrendingUp,
-  ChevronDown,
-  ChevronUp,
-  Layers,
-  Award,
-  Users,
-  Calendar,
-  CheckCircle2,
-  ArrowRight,
-  PlusCircle,
-  Mail,
-  Heart,
-  Globe,
-  Radio
+  Search, Zap, ShieldCheck, QrCode, TrendingUp,
+  ChevronDown, ChevronUp, Calendar, CheckCircle2,
+  ArrowRight, PlusCircle, Mail, Heart, Radio
 } from 'lucide-react';
 
-const categoriesList = [
-  'All',
-  'Conference',
-  'Concert',
-  'Workshop',
-  'Tech',
-  'Sports',
+const defaultCategories = [
+  'All', 'Music & Concerts', 'Conference', 'Concert', 'Workshop',
+  'Tech & IT', 'Sports & Fitness', 'Arts & Theatre', 'Parties & Entertainment',
+  'Business & Networking', 'Expos & Exhibitions', 'Seminars & Webinars', 'Food & Drink',
 ];
 
 const faqs = [
-  {
-    q: 'How does atomic ticket booking guarantee I get my seat?',
-    a: 'Our backend utilizes atomic database locking during booking transactions. This guarantees that two users can never reserve or purchase the exact same seat simultaneously, even during high-demand event drops.',
-  },
-  {
-    q: 'How do I access my booked ticket at the venue?',
-    a: 'Once booked, your ticket will appear instantly under "My Tickets" with a unique QR verification code and ticket token. Simply present this at the venue gate for instant check-in.',
-  },
-  {
-    q: 'What is the fee for event organizers?',
-    a: 'Organizers enjoy a flat 5% platform service fee on ticket sales. Net earnings are tracked in real-time on your Organizer Dashboard with automatic analytics.',
-  },
-  {
-    q: 'Can I cancel or refund my ticket?',
-    a: 'Refund policies are configured by event organizers per event. Contact the organizer or check event terms before booking.',
-  },
+  { q: 'How does atomic ticket booking guarantee I get my seat?', a: 'Our backend utilizes atomic database locking during booking transactions. This guarantees that two users can never reserve or purchase the exact same seat simultaneously, even during high-demand event drops.' },
+  { q: 'How do I access my booked ticket at the venue?', a: 'Once booked, your ticket will appear instantly under "My Tickets" with a unique QR verification code and ticket token. Simply present this at the venue gate for instant check-in.' },
+  { q: 'What is the fee for event organizers?', a: 'A 5% service fee is added to the ticket subtotal at checkout. The organizer dashboard displays verified ticket revenue excluding that fee.' },
+  { q: 'Can I cancel or refund my ticket?', a: 'You can cancel an unpaid reservation from My Tickets. Contact support to request a paid booking refund; an administrator must verify it through Stripe.' },
+];
+
+const featureCards = [
+  { icon: ShieldCheck, title: 'Atomic Booking Lock', desc: 'Database transactions prevent overselling or race conditions during high-demand ticket drops.' },
+  { icon: QrCode, title: 'Instant QR Pass', desc: 'Unforgeable QR verification tokens generated per booking for rapid gate scanning.' },
+  { icon: TrendingUp, title: 'Organizer Analytics', desc: 'Verified ticket revenue and event sales insights, with service fees reported separately.' },
+  { icon: Zap, title: 'Instant Confirmation', desc: 'Immediate ticket issuance with zero waiting time or email delivery delays.' },
 ];
 
 const Home = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [locationFilter, setLocationFilter] = useState(''), [dateFilter, setDateFilter] = useState('');
+  const [page, setPage] = useState(1), [total, setTotal] = useState(0), [loadError, setLoadError] = useState('');
+  const [categoriesList, setCategoriesList] = useState(defaultCategories);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedBookingEvent, setSelectedBookingEvent] = useState(null);
   const [message, setMessage] = useState(null);
   const [openFaq, setOpenFaq] = useState(null);
   const [newsletterEmail, setNewsletterEmail] = useState('');
-  const [newsletterSubscribed, setNewsletterSubscribed] = useState(false);
+
 
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const fetchEventsWithCatch = useCallback(async (signal) => {
+    setLoading(true);
+    try {
+      const { data } = await API.get('/events/upcoming', { signal, params: { page, search: searchQuery || undefined, category: selectedCategory === 'All' ? undefined : selectedCategory, location: locationFilter || undefined, date: dateFilter || undefined } });
+      if (!signal?.aborted) { setEvents(data.events); setTotal(data.total); setLoadError(''); }
+    } catch (error) { if (error.code !== 'ERR_CANCELED') setLoadError(error.response?.data?.message || 'Unable to load events. Please try again.'); }
+    finally { if (!signal?.aborted) setLoading(false); }
+  }, [page, searchQuery, selectedCategory, locationFilter, dateFilter]);
   useEffect(() => {
-    fetchEvents();
+    const controller = new AbortController();
+    const timer = setTimeout(() => fetchEventsWithCatch(controller.signal), 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [fetchEventsWithCatch]);
+  useEffect(() => {
+    let active = true;
+    API.get('/events/categories').then(({ data }) => {
+      if (active && data.length) setCategoriesList(Array.from(new Set(['All', ...data.map((category) => category.name)])));
+    }).catch(() => {});
+    return () => { active = false; };
   }, []);
 
-  const fetchEvents = async () => {
-    try {
-      const { data } = await API.get('/events');
-      setEvents(data);
-    } catch (err) {
-      console.error('Failed to load events', err);
-    } fontEndFinally: {
-      setLoading(false);
-    }
+  const handleBooking = (event) => {
+    if (!user) { navigate('/login'); return; }
+    setSelectedBookingEvent(event);
   };
 
-  // Safe fallback if finally block syntax
-  const fetchEventsWithCatch = async () => {
-    try {
-      const { data } = await API.get('/events');
-      setEvents(data);
-    } catch (err) {
-      console.error('Failed to load events', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleBooking = async (event) => {
-    if (!user) {
-      navigate('/login');
-      return;
-    }
-
-    try {
-      await API.post('/bookings', {
-        eventId: event._id,
-        quantity: 1,
-      });
-      setMessage({
-        type: 'success',
-        text: `🎉 Seat reserved successfully for "${event.title}"! View it in My Tickets.`,
-      });
-      fetchEventsWithCatch(); // Refresh remaining tickets
-      
-      // Auto dismiss message after 5 sec
-      setTimeout(() => setMessage(null), 6000);
-    } catch (err) {
-      setMessage({
-        type: 'error',
-        text: err.response?.data?.message || 'Booking failed. Please try again.',
-      });
-      setTimeout(() => setMessage(null), 6000);
-    }
-  };
-
-  // Filter logic
-  const filteredEvents = events.filter((evt) => {
-    const matchesCategory =
-      selectedCategory === 'All' || evt.category === selectedCategory;
-    const matchesSearch =
-      evt.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      evt.location?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      evt.description?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  const filteredEvents = events;
 
   const handleNewsletterSubmit = (e) => {
     e.preventDefault();
-    if (newsletterEmail) {
-      setNewsletterSubscribed(true);
-      setNewsletterEmail('');
-      setTimeout(() => setNewsletterSubscribed(false), 5000);
-    }
+    setMessage({ type: 'error', text: 'Newsletter subscriptions are not available yet.' });
   };
 
   return (
-    <div className="relative min-h-screen bg-[#030712] text-slate-100 overflow-hidden">
-      
-      {/* Background Decorative Glows */}
-      <div className="gradient-glow top-0 left-1/4 w-[500px] h-[500px] bg-indigo-600/20 animate-pulse-slow" />
-      <div className="gradient-glow top-1/3 right-10 w-[450px] h-[450px] bg-purple-600/20 animate-pulse-slow" style={{ animationDelay: '2s' }} />
-      <div className="gradient-glow bottom-1/4 left-10 w-[400px] h-[400px] bg-pink-600/15 animate-pulse-slow" style={{ animationDelay: '4s' }} />
+    <div className="relative min-h-screen overflow-hidden" style={{ backgroundColor: 'var(--bg-main)', color: 'var(--text-body)' }}>
 
       {/* Hero Section */}
       <section className="relative pt-12 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
-        
-        {/* Top Announcement Badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-panel border border-indigo-500/30 text-indigo-300 text-xs font-semibold uppercase tracking-wider mb-8 shadow-xl shadow-indigo-500/10 hover:border-indigo-500/50 transition">
-          <Sparkles className="w-4 h-4 text-amber-400" />
+
+        {/* Announcement Badge */}
+        <div
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold uppercase tracking-wider mb-8"
+          style={{ backgroundColor: 'var(--primary-muted)', color: 'var(--accent-text)', border: '1px solid var(--primary-border)' }}
+        >
+          <ShieldCheck className="w-4 h-4" />
           <span>Atomic Concurrency Engine & QR Gate Pass</span>
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />
         </div>
 
         {/* Main Headline */}
-        <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white max-w-5xl mx-auto leading-[1.1] mb-6">
+        <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight max-w-5xl mx-auto leading-[1.1] mb-6" style={{ color: 'var(--text-heading)' }}>
           Experience Live Events with <br className="hidden sm:inline" />
-          <span className="gradient-text">Zero Double Bookings</span>
+          <span style={{ color: 'var(--accent-text)' }}>Zero Double Bookings</span>
         </h1>
 
         {/* Sub-headline */}
-        <p className="text-slate-400 text-base sm:text-xl max-w-3xl mx-auto mb-10 leading-relaxed font-normal">
+        <p className="text-base sm:text-xl max-w-3xl mx-auto mb-10 leading-relaxed font-normal" style={{ color: 'var(--text-subtle)' }}>
           Book verified tickets atomically, manage instant gate check-ins with unforgeable QR tokens, and enjoy seamless live experiences.
         </p>
 
-        {/* Interactive Hero Search & Quick Filters */}
+        {/* Hero Search */}
         <div className="max-w-3xl mx-auto mb-10">
-          <div className="glass-panel p-2.5 sm:p-3 rounded-2xl border border-slate-800 shadow-2xl flex flex-col sm:flex-row items-center gap-3">
+          <div className="p-2.5 sm:p-3 rounded-2xl flex flex-col sm:flex-row items-center gap-3" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-card)' }}>
             <div className="relative flex-1 w-full flex items-center">
-              <Search className="w-5 h-5 text-indigo-400 absolute left-4 pointer-events-none" />
+              <Search className="w-5 h-5 absolute left-4 pointer-events-none" style={{ color: 'var(--accent-text)' }} />
               <input
                 type="text"
                 placeholder="Search events by title, venue, or keyword..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-950/80 border border-slate-800/80 rounded-xl pl-11 pr-4 py-3 text-white text-sm focus:outline-none focus:border-indigo-500 transition shadow-inner placeholder-slate-500"
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+                className="w-full rounded-xl pl-11 pr-4 py-3 text-sm ev-input"
               />
             </div>
-
-            <div className="w-full sm:w-auto flex items-center gap-2">
-              <a
-                href="#events-list"
-                className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-xl text-sm transition shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 whitespace-nowrap"
-              >
-                <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
-                Find Events
-              </a>
-            </div>
+            <a
+              href="#events-list"
+              className="w-full sm:w-auto px-6 py-3 font-bold rounded-xl text-sm flex items-center justify-center gap-2 whitespace-nowrap transition"
+              style={{ backgroundColor: 'var(--primary)', color: 'var(--text-on-primary)' }}
+              onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--primary-hover)'}
+              onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--primary)'}
+            >
+              <Zap className="w-4 h-4" />
+              Find Events
+            </a>
           </div>
 
-          {/* Quick Category Chips */}
+          {/* Category Chips */}
           <div className="flex items-center justify-center flex-wrap gap-2 mt-4">
-            <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider mr-1">
-              Categories:
-            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider mr-1" style={{ color: 'var(--text-subtle)' }}>Categories:</span>
             {categoriesList.map((cat) => (
               <button
                 key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`text-xs font-semibold px-3.5 py-1.5 rounded-full transition cursor-pointer ${
-                  selectedCategory === cat
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30 border border-indigo-400'
-                    : 'bg-slate-900/80 text-slate-400 border border-slate-800 hover:border-slate-700 hover:text-slate-200'
-                }`}
+                onClick={() => { setSelectedCategory(cat); setPage(1); }}
+                className="text-xs font-semibold px-3.5 py-1.5 rounded-full transition cursor-pointer"
+                style={{
+                  backgroundColor: selectedCategory === cat ? 'var(--primary)' : 'var(--bg-secondary)',
+                  color: selectedCategory === cat ? 'var(--text-on-primary)' : 'var(--text-subtle)',
+                  border: selectedCategory === cat ? '1px solid var(--primary)' : '1px solid var(--border)',
+                }}
+                onMouseEnter={e => { if (selectedCategory !== cat) { e.currentTarget.style.borderColor = 'var(--primary-border)'; e.currentTarget.style.color = 'var(--text-heading)'; } }}
+                onMouseLeave={e => { if (selectedCategory !== cat) { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-subtle)'; } }}
               >
                 {cat}
               </button>
@@ -216,57 +154,39 @@ const Home = () => {
           </div>
         </div>
 
-        {/* Hero CTA Buttons */}
+        {/* Hero CTAs */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <a
             href="#events-list"
-            className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-xl shadow-indigo-600/20 hover:shadow-indigo-600/40 transition-all duration-300 hover:scale-105 flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition"
+            style={{ backgroundColor: 'var(--primary)', color: 'var(--text-on-primary)' }}
+            onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--primary-hover)'}
+            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--primary)'}
           >
             Explore All Events
             <ArrowRight className="w-4 h-4" />
           </a>
           <button
             onClick={() => navigate(user ? (user.role === 'organizer' ? '/organizer/dashboard' : '/') : '/register')}
-            className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-sm bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition ev-btn-secondary"
           >
-            <PlusCircle className="w-4 h-4 text-indigo-400" />
+            <PlusCircle className="w-4 h-4" style={{ color: 'var(--accent-text)' }} />
             Host an Event
           </button>
         </div>
-
       </section>
 
-      {/* Live Stats Trust Bar */}
-      <section className="border-y border-slate-800/80 bg-slate-950/60 backdrop-blur-md py-8 px-4">
-        <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
-          <div className="p-4 border-r border-slate-800/60 last:border-none">
-            <div className="text-3xl sm:text-4xl font-extrabold text-white gradient-text">10k+</div>
-            <div className="text-xs text-slate-400 mt-1 uppercase font-semibold tracking-wider">Tickets Booked</div>
-          </div>
-          <div className="p-4 border-r border-slate-800/60 last:border-none">
-            <div className="text-3xl sm:text-4xl font-extrabold text-white gradient-text">99.9%</div>
-            <div className="text-xs text-slate-400 mt-1 uppercase font-semibold tracking-wider">Atomic Uptime</div>
-          </div>
-          <div className="p-4 border-r border-slate-800/60 last:border-none">
-            <div className="text-3xl sm:text-4xl font-extrabold text-white gradient-text">500+</div>
-            <div className="text-xs text-slate-400 mt-1 uppercase font-semibold tracking-wider">Organizers</div>
-          </div>
-          <div className="p-4">
-            <div className="text-3xl sm:text-4xl font-extrabold text-white gradient-text">0</div>
-            <div className="text-xs text-slate-400 mt-1 uppercase font-semibold tracking-wider">Double-Bookings</div>
-          </div>
-        </div>
-      </section>
-
-      {/* Toast Notification Alert */}
+      {/* Toast Notification */}
       {message && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-md animate-in fade-in slide-in-from-bottom-5">
+        <div className="fixed bottom-6 right-6 z-50 max-w-md ev-animate-in">
           <div
-            className={`p-4 rounded-xl shadow-2xl border flex items-start gap-3 backdrop-blur-xl ${
-              message.type === 'success'
-                ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-200'
-                : 'bg-rose-950/90 border-rose-500/50 text-rose-200'
-            }`}
+            className="p-4 rounded-xl flex items-start gap-3"
+            style={{
+              backgroundColor: message.type === 'success' ? 'var(--success-bg)' : 'var(--error-bg)',
+              border: message.type === 'success' ? '1px solid var(--success-border)' : '1px solid var(--error-border)',
+              color: message.type === 'success' ? 'var(--success-text)' : 'var(--error-text)',
+              boxShadow: 'var(--shadow-modal)',
+            }}
           >
             <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
             <div className="text-sm font-medium leading-relaxed">{message.text}</div>
@@ -274,45 +194,43 @@ const Home = () => {
         </div>
       )}
 
-      {/* Featured / Live Events Section */}
+      <div className="max-w-7xl mx-auto px-6 pt-8 flex flex-wrap gap-4">
+        <label>Location<input className="ev-input p-3 rounded-xl block" value={locationFilter} onChange={(e) => { setLocationFilter(e.target.value); setPage(1); }} /></label>
+        <label>Date (UTC)<input type="date" className="ev-input p-3 rounded-xl block" value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); setPage(1); }} /></label>
+      </div>
+      {loadError && <p role="alert" className="max-w-7xl mx-auto p-6 text-danger">{loadError}</p>}
+      {/* Events Section */}
       <section id="events-list" className="py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-4">
           <div>
-            <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold uppercase tracking-wider mb-2">
-              <Radio className="w-4 h-4 animate-pulse text-rose-500" />
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--accent-text)' }}>
+              <Radio className="w-4 h-4 animate-pulse" style={{ color: 'var(--error-text)' }} />
               <span>Real-Time Catalog</span>
             </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">
-              Upcoming <span className="gradient-text">Events</span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold" style={{ color: 'var(--text-heading)' }}>
+              Upcoming <span style={{ color: 'var(--accent-text)' }}>Events</span>
             </h2>
           </div>
-          
-          <div className="text-sm text-slate-400">
-            Showing <span className="text-white font-bold">{filteredEvents.length}</span> active events
+          <div className="text-sm" style={{ color: 'var(--text-subtle)' }}>
+            Showing <span className="font-bold" style={{ color: 'var(--text-heading)' }}>{filteredEvents.length}</span> of {total} active events
           </div>
         </div>
 
-        {/* Loading Spinner / Grid */}
         {loading ? (
           <div className="py-20 text-center space-y-4">
-            <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-slate-400 text-sm">Fetching atomic event listings...</p>
+            <div className="w-12 h-12 border-4 rounded-full animate-spin mx-auto" style={{ borderColor: 'var(--primary)', borderTopColor: 'transparent' }} />
+            <p className="text-sm" style={{ color: 'var(--text-subtle)' }}>Fetching atomic event listings...</p>
           </div>
         ) : filteredEvents.length === 0 ? (
-          <div className="glass-card rounded-2xl p-12 text-center max-w-lg mx-auto border border-slate-800">
-            <div className="w-16 h-16 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4 text-indigo-400">
+          <div className="ev-card rounded-2xl p-12 text-center max-w-lg mx-auto">
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: 'var(--primary-muted)', color: 'var(--accent-text)' }}>
               <Calendar className="w-8 h-8" />
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">No matching events found</h3>
-            <p className="text-slate-400 text-sm mb-6">
-              Try adjusting your search criteria or category filter.
-            </p>
+            <h3 className="text-xl font-bold mb-2" style={{ color: 'var(--text-heading)' }}>No matching events found</h3>
+            <p className="text-sm mb-6" style={{ color: 'var(--text-subtle)' }}>Try adjusting your search criteria or category filter.</p>
             <button
-              onClick={() => {
-                setSearchQuery('');
-                setSelectedCategory('All');
-              }}
-              className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition cursor-pointer"
+              onClick={() => { setSearchQuery(''); setSelectedCategory('All'); setLocationFilter(''); setDateFilter(''); setPage(1); }}
+              className="px-5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ev-btn-secondary"
             >
               Reset Filters
             </button>
@@ -326,86 +244,64 @@ const Home = () => {
         )}
       </section>
 
-      {/* Feature Highlights Section */}
-      <section id="features" className="py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-slate-800/80">
+      <nav aria-label="Event pages" className="max-w-7xl mx-auto px-6 pb-8 flex gap-4 items-center">
+        <button disabled={page === 1 || loading} onClick={() => setPage(page - 1)} className="ev-btn-secondary p-3 rounded-xl">Previous</button><span>Page {page}</span>
+        <button disabled={page * 24 >= total || loading} onClick={() => setPage(page + 1)} className="ev-btn-secondary p-3 rounded-xl">Next</button>
+      </nav>
+      {/* Features Section */}
+      <section id="features" className="py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto" style={{ borderTop: '1px solid var(--border)' }}>
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4">
-            Engineered for <span className="gradient-text">Trust & Speed</span>
+          <h2 className="text-3xl sm:text-4xl font-extrabold mb-4" style={{ color: 'var(--text-heading)' }}>
+            Engineered for <span style={{ color: 'var(--accent-text)' }}>Trust & Speed</span>
           </h2>
-          <p className="text-slate-400 text-base">
+          <p className="text-base" style={{ color: 'var(--text-subtle)' }}>
             Built with modern architecture to deliver instant seat locks, high performance, and effortless event hosting.
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          
-          <div className="glass-card p-6 rounded-2xl">
-            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-5">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">Atomic Booking Lock</h3>
-            <p className="text-slate-400 text-sm leading-relaxed">
-              Database transactions prevent overselling or race conditions during high-demand ticket drops.
-            </p>
-          </div>
-
-          <div className="glass-card p-6 rounded-2xl">
-            <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-5">
-              <QrCode className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">Instant QR Pass</h3>
-            <p className="text-slate-400 text-sm leading-relaxed">
-              Unforgeable QR verification tokens generated per booking for rapid gate scanning.
-            </p>
-          </div>
-
-          <div className="glass-card p-6 rounded-2xl">
-            <div className="w-12 h-12 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400 mb-5">
-              <TrendingUp className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">Organizer Analytics</h3>
-            <p className="text-slate-400 text-sm leading-relaxed">
-              Real-time net revenue insights with automatic 95% payout calculations and sales tracking.
-            </p>
-          </div>
-
-          <div className="glass-card p-6 rounded-2xl">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-5">
-              <Zap className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">Instant Confirmation</h3>
-            <p className="text-slate-400 text-sm leading-relaxed">
-              Immediate ticket issuance with zero waiting time or email delivery delays.
-            </p>
-          </div>
-
+          {featureCards.map((f, i) => {
+            const Icon = f.icon;
+            return (
+              <div key={i} className="ev-card p-6 rounded-2xl transition hover:-translate-y-0.5">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5" style={{ backgroundColor: 'var(--primary-muted)', color: 'var(--accent-text)', border: '1px solid var(--primary-border)' }}>
+                  <Icon className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--text-heading)' }}>{f.title}</h3>
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--text-subtle)' }}>{f.desc}</p>
+              </div>
+            );
+          })}
         </div>
       </section>
 
-      {/* For Organizers CTA Banner */}
+      {/* Organizers CTA */}
       <section id="organizers" className="py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        <div className="relative rounded-3xl overflow-hidden p-8 sm:p-12 bg-gradient-to-r from-indigo-900/90 via-purple-900/80 to-slate-900 border border-indigo-500/30 shadow-2xl">
+        <div className="relative rounded-3xl overflow-hidden p-8 sm:p-12" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
           <div className="relative z-10 max-w-2xl">
-            <span className="text-xs font-bold uppercase tracking-widest text-indigo-300 bg-indigo-500/20 border border-indigo-500/40 px-3 py-1 rounded-full mb-4 inline-block">
+            <span className="text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-4 inline-block" style={{ color: 'var(--accent-text)', backgroundColor: 'var(--primary-muted)', border: '1px solid var(--primary-border)' }}>
               Host Your Next Event
             </span>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4 leading-tight">
+            <h2 className="text-3xl sm:text-4xl font-extrabold mb-4 leading-tight" style={{ color: 'var(--text-heading)' }}>
               Are You an Event Organizer? <br />
               Publish & Sell Tickets in Minutes.
             </h2>
-            <p className="text-indigo-200 text-sm sm:text-base mb-8 leading-relaxed">
+            <p className="text-sm sm:text-base mb-8 leading-relaxed" style={{ color: 'var(--text-body)' }}>
               Create custom ticket tiers, manage capacity seamlessly, monitor sales analytics in real-time, and verify tickets at the venue gate with our built-in QR scanner.
             </p>
             <div className="flex flex-wrap gap-4">
               <button
                 onClick={() => navigate('/register')}
-                className="px-6 py-3 bg-white text-indigo-950 font-bold rounded-xl text-sm hover:bg-slate-100 transition shadow-lg cursor-pointer"
+                className="px-6 py-3 font-bold rounded-xl text-sm transition cursor-pointer"
+                style={{ backgroundColor: 'var(--primary)', color: 'var(--text-on-primary)' }}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--primary-hover)'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--primary)'}
               >
                 Start Host Account
               </button>
               <button
                 onClick={() => navigate('/login')}
-                className="px-6 py-3 bg-indigo-950/80 hover:bg-indigo-900 text-white font-semibold rounded-xl text-sm border border-indigo-700/50 transition cursor-pointer"
+                className="px-6 py-3 font-semibold rounded-xl text-sm transition cursor-pointer ev-btn-secondary"
               >
                 Sign In to Dashboard
               </button>
@@ -415,35 +311,30 @@ const Home = () => {
       </section>
 
       {/* FAQ Section */}
-      <section id="faq" className="py-20 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto border-t border-slate-800/80">
+      <section id="faq" className="py-20 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto" style={{ borderTop: '1px solid var(--border)' }}>
         <div className="text-center mb-12">
-          <h2 className="text-3xl font-extrabold text-white mb-3">
-            Frequently Asked <span className="gradient-text">Questions</span>
+          <h2 className="text-3xl font-extrabold mb-3" style={{ color: 'var(--text-heading)' }}>
+            Frequently Asked <span style={{ color: 'var(--accent-text)' }}>Questions</span>
           </h2>
-          <p className="text-slate-400 text-sm">
-            Everything you need to know about booking and managing events.
-          </p>
+          <p className="text-sm" style={{ color: 'var(--text-subtle)' }}>Everything you need to know about booking and managing events.</p>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           {faqs.map((faq, idx) => (
-            <div
-              key={idx}
-              className="glass-card rounded-2xl overflow-hidden border border-slate-800/80 transition"
-            >
+            <div key={idx} className="ev-card rounded-2xl overflow-hidden">
               <button
                 onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                className="w-full p-5 text-left flex justify-between items-center gap-4 text-white font-semibold text-sm sm:text-base hover:text-indigo-300 transition cursor-pointer"
+                className="w-full p-5 text-left flex justify-between items-center gap-4 text-sm sm:text-base font-semibold transition cursor-pointer"
+                style={{ color: 'var(--text-heading)' }}
               >
                 <span>{faq.q}</span>
-                {openFaq === idx ? (
-                  <ChevronUp className="w-5 h-5 text-indigo-400 shrink-0" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-slate-400 shrink-0" />
-                )}
+                {openFaq === idx
+                  ? <ChevronUp className="w-5 h-5 shrink-0" style={{ color: 'var(--accent-text)' }} />
+                  : <ChevronDown className="w-5 h-5 shrink-0" style={{ color: 'var(--text-subtle)' }} />
+                }
               </button>
               {openFaq === idx && (
-                <div className="px-5 pb-5 text-slate-400 text-sm leading-relaxed border-t border-slate-800/50 pt-3">
+                <div className="px-5 pb-5 text-sm leading-relaxed pt-3" style={{ color: 'var(--text-body)', borderTop: '1px solid var(--border)' }}>
                   {faq.a}
                 </div>
               )}
@@ -452,47 +343,44 @@ const Home = () => {
         </div>
       </section>
 
-      {/* Footer Section */}
-      <footer className="border-t border-slate-800/80 bg-slate-950 pt-16 pb-12 px-4 sm:px-6 lg:px-8">
+      {/* Footer */}
+      <footer className="pt-16 pb-12 px-4 sm:px-6 lg:px-8" style={{ borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-card)' }}>
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
-          
           <div className="space-y-4">
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--primary)', color: 'var(--text-on-primary)' }}>
                 <Calendar className="w-5 h-5" />
               </div>
-              <span className="text-xl font-bold text-white">Eventra</span>
+              <span className="text-xl font-bold" style={{ color: 'var(--text-heading)' }}>Eventra</span>
             </div>
-            <p className="text-slate-400 text-xs leading-relaxed">
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-subtle)' }}>
               The high-concurrency event ticketing platform powered by atomic reservation technology.
             </p>
           </div>
 
           <div>
-            <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4">Quick Links</h4>
-            <ul className="space-y-2 text-xs text-slate-400">
-              <li><a href="#events-list" className="hover:text-indigo-400 transition">Browse Events</a></li>
-              <li><a href="#features" className="hover:text-indigo-400 transition">Why Choose Us</a></li>
-              <li><a href="#organizers" className="hover:text-indigo-400 transition">Host an Event</a></li>
-              <li><a href="#faq" className="hover:text-indigo-400 transition">Help & FAQ</a></li>
+            <h4 className="text-sm font-bold uppercase tracking-wider mb-4" style={{ color: 'var(--text-heading)' }}>Quick Links</h4>
+            <ul className="space-y-2 text-xs" style={{ color: 'var(--text-subtle)' }}>
+              <li><a href="#events-list" className="hover:text-accent transition">Browse Events</a></li>
+              <li><a href="#features" className="hover:text-accent transition">Why Choose Us</a></li>
+              <li><a href="#organizers" className="hover:text-accent transition">Host an Event</a></li>
+              <li><a href="#faq" className="hover:text-accent transition">Help & FAQ</a></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4">Legal & Privacy</h4>
-            <ul className="space-y-2 text-xs text-slate-400">
-              <li><span className="hover:text-indigo-400 transition cursor-pointer">Terms of Service</span></li>
-              <li><span className="hover:text-indigo-400 transition cursor-pointer">Privacy Policy</span></li>
-              <li><span className="hover:text-indigo-400 transition cursor-pointer">Organizer Terms</span></li>
-              <li><span className="hover:text-indigo-400 transition cursor-pointer">Refund Guidelines</span></li>
+            <h4 className="text-sm font-bold uppercase tracking-wider mb-4" style={{ color: 'var(--text-heading)' }}>Legal & Privacy</h4>
+            <ul className="space-y-2 text-xs" style={{ color: 'var(--text-subtle)' }}>
+              <li><span className="hover:text-accent transition cursor-pointer">Terms of Service</span></li>
+              <li><span className="hover:text-accent transition cursor-pointer">Privacy Policy</span></li>
+              <li><span className="hover:text-accent transition cursor-pointer">Organizer Terms</span></li>
+              <li><span className="hover:text-accent transition cursor-pointer">Refund Guidelines</span></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4">Newsletter</h4>
-            <p className="text-slate-400 text-xs mb-3">
-              Subscribe to get alerts for hot upcoming event drops.
-            </p>
+            <h4 className="text-sm font-bold uppercase tracking-wider mb-4" style={{ color: 'var(--text-heading)' }}>Newsletter</h4>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-subtle)' }}>Subscribe to get alerts for hot upcoming event drops.</p>
             <form onSubmit={handleNewsletterSubmit} className="flex gap-2">
               <input
                 type="email"
@@ -500,32 +388,47 @@ const Home = () => {
                 placeholder="Enter your email..."
                 value={newsletterEmail}
                 onChange={(e) => setNewsletterEmail(e.target.value)}
-                className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 flex-1"
+                className="ev-input rounded-lg px-3 py-2 text-xs flex-1"
               />
               <button
                 type="submit"
-                className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer"
+                className="px-3 py-2 rounded-lg text-xs font-semibold transition cursor-pointer"
+                style={{ backgroundColor: 'var(--primary)', color: 'var(--text-on-primary)' }}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--primary-hover)'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--primary)'}
               >
                 <Mail className="w-4 h-4" />
               </button>
             </form>
-            {newsletterSubscribed && (
-              <p className="text-xs text-emerald-400 mt-2 font-medium">✓ Subscribed successfully!</p>
-            )}
           </div>
-
         </div>
 
-        <div className="max-w-7xl mx-auto pt-8 border-t border-slate-900 flex flex-col sm:flex-row justify-between items-center text-xs text-slate-500 gap-4">
+        <div className="max-w-7xl mx-auto pt-8 flex flex-col sm:flex-row justify-between items-center text-xs gap-4" style={{ borderTop: '1px solid var(--border)', color: 'var(--text-subtle)' }}>
           <p>© {new Date().getFullYear()} Eventra. All rights reserved.</p>
           <div className="flex items-center gap-1">
             <span>Crafted with</span>
-            <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline" />
+            <Heart className="w-3.5 h-3.5 inline" style={{ color: 'var(--error-text)', fill: 'var(--error-text)' }} />
             <span>for seamless live event experiences.</span>
           </div>
         </div>
       </footer>
 
+      {/* Booking Modal */}
+      {selectedBookingEvent && (
+        <BookingModal
+          event={selectedBookingEvent}
+          user={user}
+          onClose={() => setSelectedBookingEvent(null)}
+          onBookingSuccess={(booking) => {
+            setMessage({
+              type: 'success',
+              text: `🎉 Seat reserved & paid successfully for "${selectedBookingEvent.title}"! Ref: ${booking.qrCodeString || booking._id}`,
+            });
+            fetchEventsWithCatch();
+            setTimeout(() => setMessage(null), 7000);
+          }}
+        />
+      )}
     </div>
   );
 };

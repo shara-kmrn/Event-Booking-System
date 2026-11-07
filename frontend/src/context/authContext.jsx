@@ -1,95 +1,117 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import API from '../api/axios';
+import { SESSION_CHANGED_EVENT, readToken, saveSession, clearSession, tokenExpiry, logoutSession } from '../api/authSession.js';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token') || null);
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sessionError, setSessionError] = useState('');
 
-  // App එක load වෙද්දී token එක තියෙනවා නම් user data restore කිරීම
+  const logout = useCallback(() => {
+    logoutSession(setUser, setToken);
+    setSessionError('');
+  }, []);
+
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser && token) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (e) {
-        logout();
+    const onSessionChange = () => {
+      setUser(null);
+      setToken(null);
+    };
+    const onStorage = (event) => {
+      if (event.key === 'token' || event.key === 'user') {
+        // Reloading obtains a fresh, server-validated role/profile in this tab.
+        window.location.reload();
       }
-    }
-    setLoading(false);
+    };
+    window.addEventListener(SESSION_CHANGED_EVENT, onSessionChange);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(SESSION_CHANGED_EVENT, onSessionChange);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const storedToken = readToken();
+    const restore = async () => {
+      if (!storedToken) {
+        localStorage.removeItem('user');
+        if (active) setLoading(false);
+        return;
+      }
+      if (tokenExpiry(storedToken) <= Date.now()) {
+        clearSession(storedToken);
+        if (active) setLoading(false);
+        return;
+      }
+      try {
+        const { data } = await API.get('/auth/profile');
+        if (active && readToken() === storedToken) {
+          saveSession(data, storedToken);
+          setUser(data);
+          setToken(storedToken);
+        }
+      } catch (error) {
+        if (active && readToken() === storedToken) {
+          if (error.response?.status === 401) logout();
+          else setSessionError('Unable to restore your session. Check your connection and reload to try again.');
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    restore();
+    return () => { active = false; };
+  }, [logout]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const remaining = tokenExpiry(token) - Date.now();
+    const timer = setTimeout(() => clearSession(token), Math.max(0, remaining));
+    return () => clearTimeout(timer);
   }, [token]);
 
-  // Login handler
   const login = async (email, password) => {
     const { data } = await API.post('/auth/login', { email, password });
     if (data.token) {
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data));
-      setToken(data.token);
-      setUser(data);
+      const { token: nextToken, ...profile } = data;
+      saveSession(profile, nextToken);
+      setToken(nextToken);
+      setUser(profile);
+      setSessionError('');
     }
     return data;
   };
-
-  // Register handler
-  const register = async (userData) => {
-    const { data } = await API.post('/auth/register', userData);
+  const updateProfile = async (fields) => {
+    const { data } = await API.put('/auth/profile', fields);
+    const currentToken = readToken();
+    if (currentToken) { saveSession(data, currentToken); setUser(data); }
     return data;
   };
-
-  // Verify OTP handler
-  const verifyOtp = async (email, otp) => {
-    const { data } = await API.post('/auth/verify-otp', { email, otp });
-    // Note: Do NOT auto-save token here if caller wants manual login
-    return data;
-  };
-
-  // Resend OTP handler
-  const resendOtp = async (email) => {
-    const { data } = await API.post('/auth/resend-otp', { email });
-    return data;
-  };
-
-  // Forgot Password handler
-  const forgotPassword = async (email) => {
-    const { data } = await API.post('/auth/forgot-password', { email });
-    return data;
-  };
-
-  // Reset Password handler
-  const resetPassword = async (email, otp, newPassword) => {
-    const { data } = await API.post('/auth/reset-password', { email, otp, newPassword });
-    return data;
-  };
-
-  // Logout handler
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setToken(null);
-    setUser(null);
-  };
+  const register = async (userData) => (await API.post('/auth/register', userData)).data;
+  const verifyOtp = async (email, otp) => (await API.post('/auth/verify-otp', { email, otp })).data;
+  const resendOtp = async (email) => (await API.post('/auth/resend-otp', { email })).data;
+  const forgotPassword = async (email) => (await API.post('/auth/forgot-password', { email })).data;
+  const resetPassword = async (email, otp, newPassword) =>
+    (await API.post('/auth/reset-password', { email, otp, newPassword })).data;
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        token,
-        loading,
-        login,
-        register,
-        verifyOtp,
-        resendOtp,
-        forgotPassword,
-        resetPassword,
-        logout,
-      }}
-    >
-      {!loading && children}
+    <AuthContext.Provider value={{ user, token, loading, login, register, verifyOtp,
+      resendOtp, forgotPassword, resetPassword, updateProfile, logout }}>
+      {!loading && sessionError ? (
+        <div role="alert" className="p-6 text-center">
+          <p>{sessionError}</p>
+          <button type="button" onClick={() => window.location.reload()}>Retry</button>
+          <button type="button" onClick={logout}>Sign out</button>
+        </div>
+      ) : !loading && children}
     </AuthContext.Provider>
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);

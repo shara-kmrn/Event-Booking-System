@@ -1,120 +1,100 @@
-import crypto from 'crypto';
 import Booking from '../models/booking.js';
 import Event from '../models/event.js';
+import { BookingError, bookingErrorResponse, mongoId } from '../config/bookingSecurity.js';
+import { bookingResponse } from '../utils/bookingResponse.js';
+import { createPendingBooking, authorizedBooking, projectReservation, releasePending } from '../services/bookingService.js';
+import { readReservation } from '../services/inventoryService.js';
+import { synchronizePayment, cancelPendingPayment } from '../services/paymentService.js';
 
-// @desc    Book tickets for an event (Customer)
-// @route   POST /api/bookings
-// @access  Private (Customer / Authenticated User)
+const snapshot = async (booking) => {
+  if (booking.paymentVersion !== 2 || booking.bookingStatus !== 'PENDING') return booking;
+  const { reservation } = await readReservation(booking);
+  if (reservation?.status === 'HELD' && new Date(booking.reservationExpiresAt) <= new Date()) return releasePending(booking, 'EXPIRED');
+  return reservation ? projectReservation(booking, reservation) : booking;
+};
+const populateBooking = (booking) => booking.populate([
+  { path: 'eventId', select: 'title startDateTime endDateTime date startTime endTime location bannerUrl status isPublished isActive approvalStatus isCancelled cancelledAt category contactEmail contactPhone' },
+  { path: 'customerId', select: 'name' }, { path: 'tenantId', select: 'name' },
+]);
 export const createBooking = async (req, res) => {
   try {
-    const { eventId, ticketQuantity } = req.body;
-    const quantity = Number(ticketQuantity);
-
-    if (!quantity || quantity < 1) {
-      return res.status(400).json({ message: 'Invalid ticket quantity' });
-    }
-
-    const event = await Event.findById(eventId);
-    if (!event) {
-      return res.status(404).json({ message: 'Event not found' });
-    }
-
-    // 1. Capacity Check
-    if (event.availableTickets < quantity) {
-      return res.status(400).json({
-        message: `Not enough tickets available. Only ${event.availableTickets} tickets remaining.`,
-      });
-    }
-
-    // 2. Financial Calculations (5% Platform Fee Split)
-    const totalAmount = event.ticketPrice * quantity;
-    const platformFee = Math.round(totalAmount * 0.05 * 100) / 100; // 5% fee
-    const organizerRevenue = Math.round((totalAmount - platformFee) * 100) / 100; // 95% revenue
-
-    // 3. Generate Secure Unique Verification Hash for QR Code
-    const qrCodeString = `TKT-${crypto.randomBytes(6).toString('hex').toUpperCase()}-${Date.now()}`;
-
-    // 4. Create Booking Record
-    const booking = await Booking.create({
-      eventId: event._id,
-      tenantId: event.tenantId, // Isolated to Event Organizer
-      customerId: req.user._id,
-      ticketQuantity: quantity,
-      totalAmount,
-      platformFee,
-      organizerRevenue,
-      paymentStatus: 'paid', // MVP focus: marked as paid directly
-      qrCodeString,
+    const booking = await createPendingBooking(req.user, req.body, req.get('Idempotency-Key'));
+    return res.status(201).json({
+      message: booking.bookingStatus === 'CONFIRMED' ? 'Payment verified and booking confirmed.' : 'Tickets reserved. Complete payment before the reservation expires.',
+      booking: bookingResponse(booking),
     });
-
-    // 5. Atomic Update: Decrease available tickets in the Event
-    event.availableTickets -= quantity;
-    await event.save();
-
-    res.status(201).json({
-      message: 'Booking confirmed successfully',
-      booking,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+  } catch (error) { return bookingErrorResponse(res, error); }
 };
-
-// @desc    Get bookings of the logged-in customer
-// @route   GET /api/bookings/my-bookings
-// @access  Private (Customer)
 export const getMyBookings = async (req, res) => {
   try {
-    const bookings = await Booking.find({ customerId: req.user._id })
-      .populate('eventId', 'title date location bannerUrl ticketPrice')
-      .sort({ createdAt: -1 });
-
-    res.status(200).json(bookings);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    const bookings = await Booking.find({ customerId: req.user._id }).sort({ createdAt: -1 });
+    const result = [];
+    for (const original of bookings) {
+      const booking = await populateBooking(await snapshot(original));
+      result.push(bookingResponse(booking));
+    }
+    return res.json(result);
+  } catch (error) { return bookingErrorResponse(res, error); }
 };
-
-// @desc    Verify QR ticket at event entrance gate
-// @route   POST /api/bookings/verify-ticket
-// @access  Private (Organizer only)
+export const getBookingById = async (req, res) => {
+  try {
+    const booking = await snapshot(await authorizedBooking(req.params.bookingId, req.user));
+    return res.json(bookingResponse(await populateBooking(booking)));
+  } catch (error) { return bookingErrorResponse(res, error); }
+};
+export const confirmBooking = async (req, res) => {
+  try {
+    if (req.body && Object.keys(req.body).length) throw new BookingError(400, 'Payment confirmation accepts no client payment assertions.');
+    const booking = await authorizedBooking(req.params.bookingId, req.user, { customerOnly: true });
+    const updated = await synchronizePayment(booking, { refresh: true });
+    return res.json({ booking: bookingResponse(await populateBooking(updated)) });
+  } catch (error) { return bookingErrorResponse(res, error); }
+};
+export const cancelBooking = async (req, res) => {
+  try {
+    const booking = await authorizedBooking(req.params.bookingId, req.user, { customerOnly: true });
+    if (!['PENDING', 'CANCELLED'].includes(booking.bookingStatus)) throw new BookingError(409, 'Only pending bookings can be cancelled here.');
+    const updated = await cancelPendingPayment(booking);
+    return res.status(updated.needsReconciliation ? 202 : 200).json({
+      message: updated.needsReconciliation ? 'Cancellation recorded; payment reconciliation is pending.' : 'Pending booking cancelled.',
+      booking: bookingResponse(updated),
+    });
+  } catch (error) { return bookingErrorResponse(res, error); }
+};
 export const verifyTicket = async (req, res) => {
   try {
-    const { qrCodeString } = req.body;
-
-    const booking = await Booking.findOne({ qrCodeString })
-      .populate('eventId', 'title date location')
-      .populate('customerId', 'name email');
-
-    if (!booking) {
-      return res.status(404).json({ valid: false, message: 'Invalid ticket / Not found' });
+    const token = req.body?.qrCodeString || req.body?.ticketToken || req.body?.qrToken || req.body?.token;
+    const eventId = typeof req.body?.eventId === 'string' ? req.body.eventId.toLowerCase() : '';
+    if (!mongoId(eventId) || typeof token !== 'string' || !/^TKT-[a-f0-9]{64}$/.test(token)) {
+      throw new BookingError(400, 'Select an event and provide a valid ticket token.', 'INVALID_TICKET');
     }
-
-    // Verify Organizer Ownership (Tenant Check)
-    if (booking.tenantId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ valid: false, message: 'This ticket does not belong to your event' });
+    const event = await Event.findById(eventId);
+    if (!event || event.tenantId.toString() !== req.user._id.toString()) {
+      throw new BookingError(403, 'You cannot validate tickets for this event.');
     }
-
-    if (booking.isCheckedIn) {
-      return res.status(400).json({
-        valid: false,
-        message: 'Ticket has ALREADY BEEN USED for entry',
-        booking,
-      });
+    if (event.status !== 'published' || !event.isPublished || event.approvalStatus !== 'approved' ||
+        event.isActive === false || event.isCancelled || event.cancelledAt || new Date(event.endDateTime) <= new Date()) {
+      throw new BookingError(409, 'This event is not eligible for check-in.', 'EVENT_UNAVAILABLE');
     }
-
-    // Mark as checked-in
-    booking.isCheckedIn = true;
-    await booking.save();
-
-    res.status(200).json({
-      valid: true,
-      message: 'Ticket verified successfully. Entry allowed!',
-      attendee: booking.customerId.name,
-      event: booking.eventId.title,
-      ticketsCount: booking.ticketQuantity,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    const booking = await Booking.findOne({ qrToken: token });
+    if (!booking) throw new BookingError(404, 'Invalid ticket.', 'INVALID_TICKET');
+    if (booking.eventId.toString() !== eventId || booking.tenantId.toString() !== req.user._id.toString()) {
+      throw new BookingError(409, 'This ticket belongs to a different event.', 'WRONG_EVENT');
+    }
+    if (booking.isCheckedIn || booking.ticketStatus === 'USED') throw new BookingError(409, 'Ticket already used.', 'TICKET_USED');
+    if (booking.locationEndDateTime && new Date(booking.locationEndDateTime) <= new Date()) {
+      throw new BookingError(409, 'This event location has ended.', 'EVENT_ENDED');
+    }
+    const checked = await Booking.findOneAndUpdate({
+      _id: booking._id, eventId, tenantId: req.user._id, qrToken: token,
+      paymentVersion: 2, bookingStatus: 'CONFIRMED', paymentStatus: 'paid',
+      paymentVerifiedAt: { $exists: true, $ne: null }, ticketStatus: 'VALID', isCheckedIn: false,
+      refundRequested: { $ne: true },
+    }, { $set: { ticketStatus: 'USED', isCheckedIn: true, checkedInAt: new Date() } }, { returnDocument: 'after' });
+    if (!checked) throw new BookingError(409, 'Ticket is already used or is not a valid confirmed booking.', 'TICKET_UNAVAILABLE');
+    return res.json({ valid: true, message: 'Ticket valid. Group entry recorded.',
+      attendee: checked.customerName || 'Customer', user: { name: checked.customerName || 'Customer' },
+      event: { _id: event._id, title: event.title }, quantity: checked.ticketQuantity,
+      ticketsCount: checked.ticketQuantity, locationName: checked.locationName, ticketType: checked.ticketType });
+  } catch (error) { return bookingErrorResponse(res, error); }
 };

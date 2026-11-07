@@ -1,14 +1,143 @@
 @import "tailwindcss";
 
+/* Tailwind v4 utilities share the active CSS-variable palette. */
+@theme inline {
+  --color-main: var(--bg-main);
+  --color-card: var(--bg-card);
+  --color-secondary: var(--bg-secondary);
+  --color-input: var(--bg-input);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-muted);
+  --color-primary-border: var(--primary-border);
+  --color-heading: var(--text-heading);
+  --color-body: var(--text-body);
+  --color-subtle: var(--text-subtle);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent-text);
+  --color-on-primary: var(--text-on-primary);
+  --color-border: var(--border);
+  --color-error-soft: var(--error-bg);
+  --color-error-border: var(--error-border);
+  --color-danger: var(--error-text);
+  --color-danger-hover: var(--danger-hover);
+  --color-on-danger: var(--text-on-danger);
+  --color-warning-soft: var(--warning-bg);
+  --color-warning-border: var(--warning-border);
+  --color-warning: var(--warning-text);
+  --color-overlay: var(--overlay);
+  --color-qr-paper: #FFFFFF;
+  --color-qr-ink: #000000;
+}
+
+
+/* =====================================================
+   EVENTRA – Emerald & Charcoal Design System
+   CSS Custom Properties for Dark & Light Themes
+   ===================================================== */
+
+/* Dark Theme (default) */
+:root,
+[data-theme="dark"] {
+  --bg-main:       #171C1A;
+  --bg-card:       #222B26;
+  --bg-secondary:  #2B3830;
+  --bg-input:      #222B26;
+
+  --primary:       #16A36A;
+  --primary-hover: #128456;
+  --primary-muted: #243C30;
+  --primary-border: #427E5D;
+
+  --text-heading:  #F4F7F4;
+  --text-body:     #C5D0C8;
+  --text-muted:    #91A096;
+  /* Each emerald fill uses a foreground with sufficient text contrast. */
+  --text-on-primary: #000000;
+  --text-on-primary-hover: #FFFFFF;
+
+  --border:        #35433A;
+  --border-subtle: #35433A;
+
+  --error-bg: #3B2828;
+  --error-border: #985451;
+  --error-text: #ECA6A0;
+
+  --success-bg: #243C30;
+  --success-border: #427E5D;
+  --success-text: #83CCA5;
+
+  --warning-bg: #393324;
+  --warning-border: #887344;
+  --warning-text: #DDC18C;
+
+  --shadow-card: none;
+  --shadow-modal: none;
+
+  --text-subtle: #92A197;
+  --accent-text: #83CCA5;
+  --overlay: #101612;
+  --danger-hover: #F0B8B2;
+  --text-on-danger: #171C1A;
+  color-scheme: dark;
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --bg-main:       #F5F7F5;
+  --bg-card:       #FFFFFF;
+  --bg-secondary:  #EAF0EB;
+  --bg-input:      #FFFFFF;
+
+  --primary:       #158653;
+  --primary-hover: #116B42;
+  --primary-muted: #EAF0EB;
+  --primary-border: #8ABDA1;
+
+  --text-heading:  #18231D;
+  --text-body:     #46534A;
+  --text-muted:    #758279;
+  --text-on-primary: #FFFFFF;
+  --text-on-primary-hover: #FFFFFF;
+
+  --border:        #DCE5DE;
+  --border-subtle: #DCE5DE;
+
+  --error-bg: #FBEDEC;
+  --error-border: #D99B96;
+  --error-text: #A52D27;
+
+  --success-bg: #EAF0EB;
+  --success-border: #8ABDA1;
+  --success-text: #22643F;
+
+  --warning-bg: #FAF2DF;
+  --warning-border: #C3A461;
+  --warning-text: #805B19;
+
+  --shadow-card: none;
+  --shadow-modal: none;
+
+  --text-subtle: #617066;
+  --accent-text: #116B42;
+  --overlay: #EAF0EB;
+  --danger-hover: #86251F;
+  --text-on-danger: #FFFFFF;
+  color-scheme: light;
+}
+
+/* =====================================================
+   Base Styles
+   ===================================================== */
 @layer base {
-  :root {
-    color-scheme: dark;
+  html {
+    background-color: var(--bg-main);
   }
-  
+
   body {
-    background-color: #030712;
-    color: #f3f4f6;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: var(--bg-main);
+    color: var(--text-body);
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     overflow-x: hidden;
   }
 
@@ -22,65 +151,221 @@
   }
 }
 
-/* Custom Glassmorphism & Animations */
-.glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* =====================================================
+   Theme-Aware Utility Classes
+   ===================================================== */
+
+/* Surfaces */
+.ev-bg-main      { background-color: var(--bg-main); }
+.ev-bg-card      { background-color: var(--bg-card); border: 1px solid var(--border); }
+.ev-bg-secondary { background-color: var(--bg-secondary); }
+.ev-bg-input     { background-color: var(--bg-input); }
+
+/* Text */
+.ev-text-heading { color: var(--text-heading); }
+.ev-text-body    { color: var(--text-body); }
+.ev-text-muted   { color: var(--text-subtle); }
+.ev-text-primary { color: var(--accent-text); }
+
+/* Primary Buttons */
+.ev-btn-primary {
+  background-color: var(--primary);
+  color: var(--text-on-primary);
+  border: none;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+.ev-btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+  color: var(--text-on-primary-hover);
+}
+.ev-btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.ev-btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
-.glass-card {
-  background: rgba(30, 41, 59, 0.5);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+/* Secondary Buttons */
+.ev-btn-secondary {
+  background-color: var(--bg-secondary);
+  color: var(--text-body);
+  border: 1px solid var(--border);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.ev-btn-secondary:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--text-heading);
 }
 
-.glass-card:hover {
-  background: rgba(30, 41, 59, 0.75);
-  border-color: rgba(99, 102, 241, 0.4);
-  box-shadow: 0 10px 30px -10px rgba(99, 102, 241, 0.25);
+/* Outline Buttons */
+.ev-btn-outline {
+  background-color: transparent;
+  color: var(--accent-text);
+  border: 1px solid var(--primary);
+  transition: background-color 0.2s ease;
+}
+.ev-btn-outline:hover:not(:disabled) {
+  background-color: var(--primary-muted);
 }
 
-.gradient-text {
-  background: linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #3b82f6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+/* Cards */
+.ev-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.ev-card:hover {
+  border-color: var(--primary-border);
 }
 
-.gradient-glow {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(100px);
-  pointer-events: none;
-  opacity: 0.4;
+/* Inputs */
+.ev-input {
+  background-color: var(--bg-input);
+  color: var(--text-heading);
+  border: 1px solid var(--border);
+  transition: border-color 0.2s ease;
+}
+.ev-input::placeholder {
+  color: var(--text-subtle);
+}
+.ev-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
-@keyframes pulseSlow {
-  0%, 100% { transform: scale(1); opacity: 0.3; }
-  50% { transform: scale(1.15); opacity: 0.5; }
+/* Borders */
+.ev-border      { border-color: var(--border); }
+.ev-border-top  { border-top: 1px solid var(--border); }
+
+/* Dividers */
+.ev-divider {
+  border-top: 1px solid var(--border);
 }
 
-.animate-pulse-slow {
-  animation: pulseSlow 8s ease-in-out infinite;
+/* Badges */
+.ev-badge-primary {
+  background-color: var(--primary-muted);
+  color: var(--accent-text);
+  border: 1px solid var(--primary-border);
+}
+
+/* Alert / Notification Banners */
+.ev-alert-success {
+  background-color: var(--success-bg);
+  border: 1px solid var(--success-border);
+  color: var(--success-text);
+}
+.ev-alert-error {
+  background-color: var(--error-bg);
+  border: 1px solid var(--error-border);
+  color: var(--error-text);
+}
+.ev-alert-warning {
+  background-color: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  color: var(--warning-text);
+}
+
+/* Navbar */
+.ev-navbar {
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Modal Overlay */
+.ev-modal-overlay {
+  background-color: var(--overlay);
+}
+.ev-modal-panel {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-modal);
+}
+
+/* Table rows */
+.ev-table-row:hover {
+  background-color: var(--bg-secondary);
+}
+.ev-table-header {
+  background-color: var(--bg-secondary);
+  color: var(--text-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Stat Cards */
+.ev-stat-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+}
+
+/* Progress bar track */
+.ev-progress-track {
+  background-color: var(--bg-secondary);
 }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
-
 ::-webkit-scrollbar-track {
-  background: #030712;
+  background: var(--bg-main);
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+/* Theme Transition */
+* {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+
+/* Animations (non-color, preserved) */
+@keyframes spinSlow {
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spinSlow 1s linear infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ev-animate-in {
+  animation: fadeIn 0.2s ease-out both;
+}
+
+/* Availability bar fill */
+.ev-bar-fill-primary { background-color: var(--primary); }
+.ev-bar-fill-warning { background-color: var(--warning-text); }
+.ev-bar-fill-error   { background-color: var(--error-text); }
+
+/* Shared controls and accessible keyboard navigation across every role. */
+@layer base {
+  input, textarea, select { background-color: var(--bg-input); color: var(--text-heading); accent-color: var(--primary); }
+  input::placeholder, textarea::placeholder { color: var(--text-subtle); opacity: 1; }
+  option { background-color: var(--bg-input); color: var(--text-heading); }
+  :where(button, a, input, textarea, select, summary):focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+  button:disabled { cursor: not-allowed; }
+  ::selection { background-color: var(--primary); color: var(--text-on-primary); }
+}
+.glass-panel { background-color: var(--bg-card); }
+.ev-btn-primary :where(svg, span), .bg-primary > svg { color: inherit; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* Solid primary actions retain the requested hover color. */
+button.bg-primary:hover:not(:disabled), a.bg-primary:hover { background-color: var(--primary-hover); }
+button.bg-primary:hover:not(:disabled), a.bg-primary:hover { color: var(--text-on-primary-hover); }
+/* Existing inline hover handlers keep their behavior and share the same foreground. */
+:is(button, a)[style*="background-color: var(--primary-hover)"] { color: var(--text-on-primary-hover) !important; }

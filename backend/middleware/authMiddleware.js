@@ -1,41 +1,29 @@
-import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import { verifyToken } from '../utils/authTokens.js';
+import { PUBLIC_USER_FIELDS } from '../utils/userResponse.js';
 
-// Login වී ඇති බව තහවුරු කිරීම (Protect Middleware)
 export const protect = async (req, res, next) => {
-  let token;
-
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    try {
-      token = req.headers.authorization.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      
-      // Token එකෙන් user සොයා req.user ට assign කිරීම (password නැතුව)
-      req.user = await User.findById(decoded.id).select('-password');
-      
-      if (!req.user) {
-        return res.status(401).json({ message: 'User no longer exists' });
-      }
-
-      next();
-    } catch (error) {
-      return res.status(401).json({ message: 'Not authorized, token failed' });
+  const match = typeof req.headers.authorization === 'string' &&
+    req.headers.authorization.match(/^Bearer ([^\s]+)$/i);
+  if (!match) return res.status(401).json({ message: 'Please log in to continue.' });
+  let decoded;
+  try { decoded = verifyToken(match[1]); }
+  catch { return res.status(401).json({ message: 'Session expired or invalid. Please log in again.' }); }
+  try {
+    const user = await User.findById(decoded.id).select(`${PUBLIC_USER_FIELDS} +sessionVersion`);
+    if (!user || !user.isVerified || user.accountStatus === 'suspended' || decoded.sv !== (user.sessionVersion || 0)) {
+      return res.status(401).json({ message: 'Session expired or invalid. Please log in again.' });
     }
-  }
-
-  if (!token) {
-    return res.status(401).json({ message: 'Not authorized, no token provided' });
+    req.user = user;
+    return next();
+  } catch {
+    return res.status(503).json({ message: 'Authentication is temporarily unavailable. Please try again later.' });
   }
 };
 
-// Role-based Access Control (RBAC)
-export const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ 
-        message: `User role '${req.user.role}' is not authorized to access this route` 
-      });
-    }
-    next();
-  };
+export const authorize = (...roles) => (req, res, next) => {
+  if (!req.user || !roles.includes(req.user.role)) {
+    return res.status(403).json({ message: 'You are not authorized to access this resource.' });
+  }
+  return next();
 };
