@@ -25,7 +25,17 @@ export const requireStripeConfig = () => {
 };
 export const validateBookingConfiguration = () => {
   bookingConfig();
-  if (process.env.NODE_ENV === 'production') requireStripeConfig();
+
+  const hasStripeKey = Boolean(process.env.STRIPE_SECRET_KEY);
+  const hasWebhookSecret = Boolean(process.env.STRIPE_WEBHOOK_SECRET);
+
+  if (hasStripeKey || hasWebhookSecret) {
+    requireStripeConfig();
+  } else {
+    console.warn(
+      'Stripe is not configured. Payment features are unavailable.'
+    );
+  }
 };
 export const bookingErrorResponse = (res, error) => res.status(error instanceof BookingError ? error.status : 503).json({
   message: error instanceof BookingError ? error.message : 'Booking service is temporarily unavailable. Please retry with the same request.',

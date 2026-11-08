@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import dns from 'node:dns';
 import express from 'express';
 import cors from 'cors';
 import { getSecurityConfig, createCorsOptions } from './config/security.js';
@@ -27,6 +28,9 @@ if (process.env.NODE_ENV !== 'production' && Buffer.byteLength(security.secret) 
 }
 if (!process.env.SMTP_HOST || !process.env.FROM_EMAIL) {
   console.warn('SMTP is not configured. Email-dependent authentication will return HTTP 503 until configured.');
+}
+if (process.env.NODE_ENV !== 'production') {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
 }
 await connectDB();
 try {
@@ -89,4 +93,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   startBookingMaintenance();
-});
+});
