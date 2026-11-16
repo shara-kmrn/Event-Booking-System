@@ -257,7 +257,7 @@ const OrganizerDashboard = () => {
           </div>
           <div>
             <p className="text-xs text-body uppercase font-semibold">Ticket Revenue (Service Fee Excluded)</p>
-            <p className="text-2xl font-black text-heading">{loading || error ? '?' : '$' + (analytics.totalRevenue || 0).toFixed(2) + ' USD'}</p>
+            <p className="text-2xl font-black text-heading">{loading || error ? '?' : 'LKR ' + (analytics.totalRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
         </div>
 
@@ -278,7 +278,7 @@ const OrganizerDashboard = () => {
       <RecentBookings bookings={details.recentBookings} />
       <section className="ev-card p-5 rounded-2xl my-6"><h2 className="font-bold text-heading">Event sales</h2>
         {!details.eventBreakdown.length && <p>No sales records yet.</p>}
-        {details.eventBreakdown.map((row) => <p key={row.eventId} className="py-2 border-b border-border">{row.eventTitle}: {row.ticketsSold} tickets | USD {row.revenue.toFixed(2)}</p>)}
+        {details.eventBreakdown.map((row) => <p key={row.eventId} className="py-2 border-b border-border">{row.eventTitle}: {row.ticketsSold} tickets | LKR {row.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>)}
       </section>
       {editing && <EventEditor event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); fetchOrganizerData(); }} />}
 
@@ -357,7 +357,7 @@ const OrganizerDashboard = () => {
 
                           return (
                             <div key={idx} className="flex items-center justify-between gap-3 bg-card px-2.5 py-1 rounded border border-border">
-                              <span className="font-semibold text-heading">{tier.name} (${tier.price})</span>
+                              <span className="font-semibold text-heading">{tier.name} (LKR {tier.price?.toLocaleString?.() || tier.price})</span>
                               <span className={isSoldOut ? 'text-danger font-bold' : 'text-accent'}>
                                 {isSoldOut ? 'SOLD OUT' : `${avail} / ${total} left`}
                               </span>
@@ -643,7 +643,7 @@ const OrganizerDashboard = () => {
 
                       <div>
                         <label className="block text-[11px] font-bold text-body uppercase mb-1">
-                          PRICE ($ USD) <span className="text-accent">*</span>
+                          PRICE (Rs. LKR) <span className="text-accent">*</span>
                         </label>
                         <input
                           type="number"

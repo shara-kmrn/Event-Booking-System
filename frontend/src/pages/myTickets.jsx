@@ -224,7 +224,7 @@ const MyTickets = () => {
                           <Tag className="w-4 h-4" />
                         </div>
                         <span style={{ color: 'var(--text-body)' }}>
-                          Tier: <strong style={{ color: 'var(--text-heading)' }}>{ticketTier}</strong> • {ticketQty} Ticket(s) ({totalAmount} {(booking.currency || 'usd').toUpperCase()})
+                          Tier: <strong style={{ color: 'var(--text-heading)' }}>{ticketTier}</strong> • {ticketQty} Ticket(s) (Rs. {totalAmount} {(booking.currency || 'lkr').toUpperCase()})
                         </span>
                       </div>
                     </div>

@@ -404,7 +404,7 @@ const AdminDashboard = () => {
               <div className="glass-panel border border-border rounded-2xl p-5">
                 <p className="text-xs text-body font-semibold uppercase">Platform Fees Earned (5%)</p>
                 <h3 className="text-2xl font-black text-accent mt-1">
-                  USD {(stats?.financials?.totalPlatformEarnings || 0).toLocaleString()}
+                  LKR {(stats?.financials?.totalPlatformEarnings || 0).toLocaleString()}
                 </h3>
               </div>
             </div>
@@ -415,7 +415,7 @@ const AdminDashboard = () => {
                 <div className="bg-card p-4 rounded-xl border border-border">
                   <span className="text-body text-xs block">Gross Transaction Volume</span>
                   <span className="text-xl font-bold text-heading mt-1 block">
-                    USD {(stats?.financials?.totalGrossVolume || 0).toLocaleString()}
+                    LKR {(stats?.financials?.totalGrossVolume || 0).toLocaleString()}
                   </span>
                 </div>
                 <div className="bg-card p-4 rounded-xl border border-border">
@@ -537,7 +537,7 @@ const AdminDashboard = () => {
                       <div>{new Date(evt.date).toLocaleDateString()}</div>
                       <div className="text-[11px] text-subtle">{evt.location}</div>
                     </td>
-                    <td className="p-4 font-semibold text-accent">USD {evt.ticketPrice}</td>
+                    <td className="p-4 font-semibold text-accent">Rs. {evt.ticketPrice}</td>
                     <td className="p-4">
                       <span
                         className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
@@ -684,7 +684,7 @@ const AdminDashboard = () => {
                     <td className="p-4 font-mono font-bold text-accent">{tx.bookingId || tx._id.slice(-6)}</td>
                     <td className="p-4 text-heading">{tx.customer?.name || 'Customer'}</td>
                     <td className="p-4 text-body">{tx.eventId?.title || 'Event'}</td>
-                    <td className="p-4 font-bold text-accent">USD {tx.totalAmount}</td>
+                    <td className="p-4 font-bold text-accent">Rs. {tx.totalAmount}</td>
                     <td className="p-4">
                       <span
                         className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${

@@ -349,7 +349,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                             )}
                           </div>
                           <div className="text-xs text-accent font-extrabold mt-1">
-                            ${tier.price} USD
+                            LKR {tier.price?.toLocaleString?.() || tier.price}
                           </div>
                         </button>
                       );
@@ -364,7 +364,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                   <div>
                     <span className="text-xs font-bold text-heading block">Ticket Quantity</span>
                     <span className="text-[11px] text-body">
-                      ${unitPrice} per ticket • {isTierSoldOut ? '0 left (SOLD OUT)' : `${maxAvailable} left`}
+                      LKR {unitPrice?.toLocaleString?.() || unitPrice} per ticket • {isTierSoldOut ? '0 left (SOLD OUT)' : `${maxAvailable} left`}
                     </span>
                   </div>
 
@@ -393,7 +393,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
               {/* Price Preview */}
               <div className="flex items-center justify-between p-4 bg-primary-soft border border-primary-border rounded-2xl text-xs">
                 <span className="text-accent font-semibold">Subtotal Preview ({quantity} Tickets):</span>
-                <span className="text-base font-extrabold text-accent">${subtotal.toFixed(2)} USD</span>
+                <span className="text-base font-extrabold text-accent">LKR {subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
 
               {/* Action Button */}
@@ -513,16 +513,16 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
               {/* Financial Calculation Summary */}
               <div className="bg-card border border-border p-4 rounded-2xl space-y-2.5 text-xs">
                 <div className="flex justify-between text-body">
-                  <span>Tickets Subtotal ({quantity}x ${unitPrice}):</span>
-                  <span className="text-heading font-semibold">${subtotal.toFixed(2)} USD</span>
+                  <span>Tickets Subtotal ({quantity}x LKR {unitPrice?.toLocaleString?.() || unitPrice}):</span>
+                  <span className="text-heading font-semibold">LKR {subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-body">
                   <span>Platform Fee (5% Service):</span>
-                  <span className="text-heading font-semibold">${platformFee.toFixed(2)} USD</span>
+                  <span className="text-heading font-semibold">LKR {platformFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-sm font-extrabold text-heading border-t border-border pt-2">
                   <span>Total Amount Due:</span>
-                  <span className="text-accent">${grandTotal.toFixed(2)} USD</span>
+                  <span className="text-accent">LKR {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
 
@@ -565,7 +565,7 @@ const BookingModal = ({ event, user, onClose, onBookingSuccess }) => {
                   ) : (
                     <>
                       <Lock className="w-4 h-4 text-accent" />
-                      <span>Continue to Stripe (${grandTotal.toFixed(2)} USD)</span>
+                      <span>Continue to Stripe (LKR {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}

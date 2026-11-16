@@ -61,7 +61,7 @@ export const quoteInventory = (event, locationId, tierId, quantity) => {
   if (event.bookingClosesAt) deadlines.push(new Date(event.bookingClosesAt).getTime());
   return { ...selection, start, end, unitPrice: unitCents / 100, subtotal: subtotalCents / 100,
     platformFee: feeCents / 100, organizerRevenue: subtotalCents / 100,
-    totalAmount: amountCents / 100, amountCents, currency: 'usd',
+    totalAmount: amountCents / 100, amountCents, currency: 'lkr',
     expiresAt: new Date(Math.min(...deadlines)) };
 };
 
