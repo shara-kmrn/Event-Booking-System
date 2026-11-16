@@ -1,0 +1,150 @@
+[
+  {
+    "id": "6af1dc263a9d8cc60aa30eda",
+    "tenantId": "6af10337407d8c4eacaab060",
+    "before": {
+      "locations.0.ticketTiers.0.price": 25,
+      "locations.0.ticketTiers.1.price": 60,
+      "ticketTypes.0.price": 25,
+      "ticketTypes.1.price": 60,
+      "ticketPrice": 25
+    },
+    "after": {
+      "locations.0.ticketTiers.0.price": 2500,
+      "locations.0.ticketTiers.1.price": 6000,
+      "ticketTypes.0.price": 2500,
+      "ticketTypes.1.price": 6000,
+      "ticketPrice": 2500
+    }
+  },
+  {
+    "id": "6af1dc263a9d8cc60aa30ee5",
+    "tenantId": "6af10337407d8c4eacaab060",
+    "before": {
+      "locations.0.ticketTiers.0.price": 30,
+      "locations.0.ticketTiers.1.price": 80,
+      "ticketTypes.0.price": 30,
+      "ticketTypes.1.price": 80,
+      "ticketPrice": 30
+    },
+    "after": {
+      "locations.0.ticketTiers.0.price": 3000,
+      "locations.0.ticketTiers.1.price": 8000,
+      "ticketTypes.0.price": 3000,
+      "ticketTypes.1.price": 8000,
+      "ticketPrice": 3000
+    }
+  },
+  {
+    "id": "6af1dc273a9d8cc60aa30ef0",
+    "tenantId": "6af10337407d8c4eacaab060",
+    "before": {
+      "locations.0.ticketTiers.0.price": 10,
+      "locations.0.ticketTiers.1.price": 35,
+      "ticketTypes.0.price": 10,
+      "ticketTypes.1.price": 35,
+      "ticketPrice": 10
+    },
+    "after": {
+      "locations.0.ticketTiers.0.price": 1500,
+      "locations.0.ticketTiers.1.price": 3500,
+      "ticketTypes.0.price": 1500,
+      "ticketTypes.1.price": 3500,
+      "ticketPrice": 1500
+    }
+  },
+  {
+    "id": "6af1dc273a9d8cc60aa30efb",
+    "tenantId": "6af10337407d8c4eacaab060",
+    "before": {
+      "locations.0.ticketTiers.0.price": 40,
+      "locations.0.ticketTiers.1.price": 15,
+      "ticketTypes.0.price": 40,
+      "ticketTypes.1.price": 15,
+      "ticketPrice": 15
+    },
+    "after": {
+      "locations.0.ticketTiers.0.price": 4000,
+      "locations.0.ticketTiers.1.price": 1500,
+      "ticketTypes.0.price": 4000,
+      "ticketTypes.1.price": 1500,
+      "ticketPrice": 1500
+    }
+  },
+  {
+    "id": "6af1dc273a9d8cc60aa30f07",
+    "tenantId": "6af10337407d8c4eacaab060",
+    "before": {
+      "locations.0.ticketTiers.0.price": 20,
+      "locations.0.ticketTiers.1.price": 45,
+      "locations.0.ticketTiers.2.price": 100,
+      "ticketTypes.0.price": 20,
+      "ticketTypes.1.price": 45,
+      "ticketTypes.2.price": 100,
+      "ticketPrice": 20
+    },
+    "after": {
+      "locations.0.ticketTiers.0.price": 2000,
+      "locations.0.ticketTiers.1.price": 4500,
+      "locations.0.ticketTiers.2.price": 10000,
+      "ticketTypes.0.price": 2000,
+      "ticketTypes.1.price": 4500,
+      "ticketTypes.2.price": 10000,
+      "ticketPrice": 2000
+    }
+  },
+  {
+    "id": "6af1dc283a9d8cc60aa30f14",
+    "tenantId": "6af10337407d8c4eacaab060",
+    "before": {
+      "locations.0.ticketTiers.0.price": 12,
+      "locations.0.ticketTiers.1.price": 35,
+      "ticketTypes.0.price": 12,
+      "ticketTypes.1.price": 35,
+      "ticketPrice": 12
+    },
+    "after": {
+      "locations.0.ticketTiers.0.price": 1500,
+      "locations.0.ticketTiers.1.price": 3500,
+      "ticketTypes.0.price": 1500,
+      "ticketTypes.1.price": 3500,
+      "ticketPrice": 1500
+    }
+  },
+  {
+    "id": "6af1dc283a9d8cc60aa30f1f",
+    "tenantId": "6af10337407d8c4eacaab060",
+    "before": {
+      "locations.0.ticketTiers.0.price": 15,
+      "locations.0.ticketTiers.1.price": 50,
+      "ticketTypes.0.price": 15,
+      "ticketTypes.1.price": 50,
+      "ticketPrice": 15
+    },
+    "after": {
+      "locations.0.ticketTiers.0.price": 1500,
+      "locations.0.ticketTiers.1.price": 5000,
+      "ticketTypes.0.price": 1500,
+      "ticketTypes.1.price": 5000,
+      "ticketPrice": 1500
+    }
+  },
+  {
+    "id": "6af1dc283a9d8cc60aa30f2a",
+    "tenantId": "6af10337407d8c4eacaab060",
+    "before": {
+      "locations.0.ticketTiers.0.price": 55,
+      "locations.0.ticketTiers.1.price": 100,
+      "ticketTypes.0.price": 55,
+      "ticketTypes.1.price": 100,
+      "ticketPrice": 55
+    },
+    "after": {
+      "locations.0.ticketTiers.0.price": 5500,
+      "locations.0.ticketTiers.1.price": 10000,
+      "ticketTypes.0.price": 5500,
+      "ticketTypes.1.price": 10000,
+      "ticketPrice": 5500
+    }
+  }
+]
