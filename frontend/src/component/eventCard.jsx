@@ -61,8 +61,7 @@ const EventCard = ({ event, onBook }) => {
             className="px-3 py-1 rounded-full flex items-center gap-1"
             style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--primary-border)' }}
           >
-            <span className="text-xs font-medium" style={{ color: 'var(--text-subtle)' }}>USD</span>
-            <span className="text-base font-extrabold" style={{ color: 'var(--accent-text)' }}>${event.ticketPrice}</span>
+            <span className="text-base font-extrabold" style={{ color: 'var(--accent-text)' }}>LKR {event.ticketPrice?.toLocaleString?.() || event.ticketPrice}</span>
           </div>
         </div>
       </div>

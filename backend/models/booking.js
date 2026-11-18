@@ -42,7 +42,7 @@ const bookingSchema = new mongoose.Schema(
     requestFingerprint: { type: String, select: false },
     paymentVersion: { type: Number },
     notificationState: { type: String, select: false },
-    currency: { type: String, default: 'usd' },
+    currency: { type: String, default: 'lkr' },
     amountCents: { type: Number, min: 0, validate: Number.isSafeInteger },
     subtotal: { type: Number, min: 0 },
     locationStartDateTime: { type: Date },
