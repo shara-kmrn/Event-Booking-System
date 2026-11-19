@@ -64,7 +64,9 @@ const Login = () => {
         setOtpError('');
         setOtpSuccess(err.response.data.message || 'Please enter the verification code sent to your email.');
       } else {
-        setError(err.response?.data?.message || 'Login failed. Please check your credentials.');
+        setError(err.response?.data?.message || (err.response
+          ? 'Login failed. Please try again later.'
+          : 'Unable to reach the sign-in service. Please try again later.'));
       }
     } finally {
       setLoading(false);

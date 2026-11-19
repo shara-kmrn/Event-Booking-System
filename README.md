@@ -122,6 +122,7 @@ FROM_EMAIL=eventra@example.com
 | `CLIENT_URL`, `CORS_ALLOWED_ORIGINS` | Checkout return origin and comma-separated allowlist of exact frontend origins. CORS falls back to `CLIENT_URL`, then to localhost and 127.0.0.1 on port 5173 in development. Checkout falls back to the first allowed origin. |
 | `TRUST_PROXY_HOPS` | Trusted reverse-proxy hop count. Defaults to `0`. |
 | `SMTP_HOST`, `FROM_EMAIL` | SMTP server and sender. Required for email-dependent flows and at production startup. |
+| `MONGO_TLS_CA_FILE` | Optional path to a trusted PEM CA bundle for MongoDB TLS. Set it when the network uses an approved CA that Node does not already trust. Keep the bundle outside version control and replace it if the issuer rotates. |
 | `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | Port defaults to `587` and implicit TLS defaults off. Supply SMTP credentials as a pair when required. |
 | `AUTH_OTP_TTL_SECONDS`, `AUTH_OTP_MAX_ATTEMPTS`, `AUTH_OTP_COOLDOWN_SECONDS`, `AUTH_OTP_MAX_SENDS_PER_HOUR` | Default code lifetime, attempt cap, resend cooldown, and hourly send cap are `600`, `5`, `60`, and `5`. |
 | `AUTH_RATE_WINDOW_SECONDS`, `AUTH_RATE_LOGIN_MAX`, `AUTH_RATE_VERIFY_MAX`, `AUTH_RATE_SEND_MAX` | Default rate window and login, verification, and send limits are `900`, `15`, `10`, and `3`. |
