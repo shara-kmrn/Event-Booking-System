@@ -2,7 +2,8 @@ import axios from 'axios';
 import { readToken, clearSession } from './authSession.js';
 
 const API = axios.create({
-  baseURL: import.meta.env?.VITE_API_BASE_URL || 'http://localhost:5000/api',
+  baseURL: import.meta.env?.DEV ? '/api' :
+    import.meta.env?.VITE_API_BASE_URL || 'http://localhost:5000/api',
 });
 
 API.interceptors.request.use((request) => {
